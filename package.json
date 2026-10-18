@@ -1,0 +1,16 @@
+{
+  "name": "xunlu",
+  "private": true,
+  "description": "训录：力量训练记录与渐进超负荷建议（uni-app，iOS 先行）",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build:tokens": "npm run build -w @xunlu/tokens"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

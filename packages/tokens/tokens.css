@@ -1,0 +1,132 @@
+/* 由 build.mjs 从 tokens.json 生成，请勿手改。来源：Figma 文件 EfIzYMgSHIXhznjWTUPGeJ：变量集合「训录 / Apple」（浅色 = D，深色 = E）与「训录 / Geometry」，2026-10-18 导出 */
+
+:root,
+page {
+  --color-ink: #1c1c1e;
+  --color-muted: #727277;
+  --color-line: #e5e5ea;
+  --color-accent: #007aff;
+  --color-on-accent: #ffffff;
+  --color-soft: #eaf2ff;
+  --color-success: #248a3d;
+  --color-sheet: #ffffff;
+  --color-inactive: #f2f2f7;
+  --color-warning: #98630b;
+  --color-warning-soft: #fff2d9;
+  --color-danger: #d12f35;
+  --color-danger-soft: #fdecec;
+  --color-on-danger: #ffffff;
+  --color-bg: #f2f2f7;
+  --color-surface: #ffffff;
+  --color-timer: #1c1c1e;
+  --space-0: 0px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-28: 28px;
+  --space-32: 32px;
+  --space-40: 40px;
+  --space-48: 48px;
+  --space-64: 64px;
+  --radius-0: 0px;
+  --radius-8: 8px;
+  --radius-12: 12px;
+  --radius-16: 16px;
+  --radius-18: 18px;
+  --radius-20: 20px;
+  --radius-24: 24px;
+  --radius-28: 28px;
+  --radius-32: 32px;
+  --radius-36: 36px;
+  --radius-40: 40px;
+  --radius-44: 44px;
+  --radius-999: 999px;
+  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-11: 11px;
+  --font-12: 12px;
+  --font-13: 13px;
+  --font-15: 15px;
+  --font-17: 17px;
+  --font-20: 20px;
+  --font-22: 22px;
+  --font-24: 24px;
+  --font-28: 28px;
+  --font-32: 32px;
+  --font-34: 34px;
+  --font-56: 56px;
+  --font-96: 96px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  color-scheme: light dark;
+}
+
+/* 跟随系统深色（App 端需在 manifest.json 开启 darkmode） */
+@media (prefers-color-scheme: dark) {
+  :root,
+  page {
+    --color-ink: #f5f5f7;
+    --color-muted: #a3a3a8;
+    --color-line: #38383a;
+    --color-accent: #c5f451;
+    --color-on-accent: #142000;
+    --color-soft: #29331a;
+    --color-success: #5bdd79;
+    --color-sheet: #1c1c1e;
+    --color-inactive: #2c2c2e;
+    --color-warning: #ffbf55;
+    --color-warning-soft: #392d14;
+    --color-danger: #ff6970;
+    --color-danger-soft: #3b1d22;
+    --color-on-danger: #ffffff;
+    --color-bg: #000000;
+    --color-surface: #1c1c1e;
+    --color-timer: #f5f5f7;
+  }
+}
+
+/* 局部固定主题：训练页可加 .theme-dark 固定深色 */
+.theme-light {
+  --color-ink: #1c1c1e;
+  --color-muted: #727277;
+  --color-line: #e5e5ea;
+  --color-accent: #007aff;
+  --color-on-accent: #ffffff;
+  --color-soft: #eaf2ff;
+  --color-success: #248a3d;
+  --color-sheet: #ffffff;
+  --color-inactive: #f2f2f7;
+  --color-warning: #98630b;
+  --color-warning-soft: #fff2d9;
+  --color-danger: #d12f35;
+  --color-danger-soft: #fdecec;
+  --color-on-danger: #ffffff;
+  --color-bg: #f2f2f7;
+  --color-surface: #ffffff;
+  --color-timer: #1c1c1e;
+  color-scheme: light;
+}
+
+.theme-dark {
+  --color-ink: #f5f5f7;
+  --color-muted: #a3a3a8;
+  --color-line: #38383a;
+  --color-accent: #c5f451;
+  --color-on-accent: #142000;
+  --color-soft: #29331a;
+  --color-success: #5bdd79;
+  --color-sheet: #1c1c1e;
+  --color-inactive: #2c2c2e;
+  --color-warning: #ffbf55;
+  --color-warning-soft: #392d14;
+  --color-danger: #ff6970;
+  --color-danger-soft: #3b1d22;
+  --color-on-danger: #ffffff;
+  --color-bg: #000000;
+  --color-surface: #1c1c1e;
+  --color-timer: #f5f5f7;
+  color-scheme: dark;
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@xunlu/tokens",
+  "version": "1.0.0",
+  "private": true,
+  "description": "训录设计变量：颜色（浅色 D / 深色 E）、间距、圆角、字号。tokens.json 是源，tokens.css 由脚本生成。",
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./tokens.json": "./tokens.json"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node build.mjs --check"
+  }
+}

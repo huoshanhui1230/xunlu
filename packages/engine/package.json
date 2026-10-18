@@ -1,0 +1,23 @@
+{
+  "name": "@xunlu/engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "训录建议引擎：组间提示、训练后下次目标、状态与减载提醒。纯 TypeScript，不依赖界面和平台。",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "fast-check": "^4.10.2",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.5"
+  }
+}
