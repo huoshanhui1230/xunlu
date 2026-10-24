@@ -1,0 +1,27 @@
+{
+  "pages": [
+    {
+      "path": "pages/start/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "开始训练"
+      }
+    },
+    {
+      "path": "pages/workout/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "记录",
+        "disableScroll": false
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationStyle": "custom",
+    "navigationBarTextStyle": "@navTxtStyle",
+    "navigationBarBackgroundColor": "@navBgColor",
+    "backgroundColor": "@bgColor",
+    "backgroundColorTop": "@bgColor",
+    "backgroundColorBottom": "@bgColor"
+  }
+}

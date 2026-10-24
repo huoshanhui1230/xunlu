@@ -1,0 +1,65 @@
+{
+    "name" : "训录",
+    /* appid 要用自己的 DCloud 账号获取：HBuilderX 打开本工程 → manifest.json → 基础配置 → 重新获取。
+       没有 appid 不能运行到手机，也不能做自定义调试基座。详见 docs/ios-真机调试.md */
+    "appid" : "",
+    "description" : "力量训练记录与渐进超负荷建议",
+    "versionName" : "0.1.0",
+    "versionCode" : "100",
+    /* 设计稿按 iPhone 的点（pt）标注，字号和触控区域一律用 px，不做 rpx 换算 */
+    "transformPx" : false,
+    /* 5+App 相关 */
+    "app-plus" : {
+        "usingComponents" : true,
+        "nvueStyleCompiler" : "uni-app",
+        "compilerVersion" : 3,
+        /* 跟随系统深浅色；颜色取自 theme.json */
+        "darkmode" : true,
+        "themeLocation" : "theme.json",
+        "splashscreen" : {
+            "alwaysShowBeforeRender" : true,
+            "waiting" : true,
+            "autoclose" : true,
+            "delay" : 0
+        },
+        /* 模块配置：本地 SQLite 要打开 SQLite 模块，plus.sqlite 才可用 */
+        "modules" : {
+            "SQLite" : {}
+        },
+        /* 应用发布信息 */
+        "distribute" : {
+            "android" : {
+                "permissions" : [
+                    "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+                    "<uses-permission android:name=\"android.permission.WAKE_LOCK\"/>"
+                ]
+            },
+            "ios" : {
+                /* 训练中屏幕常亮，不需要后台运行 */
+                "idfa" : false,
+                "dSYMs" : false
+            },
+            "sdkConfigs" : {}
+        }
+    },
+    /* 微信小程序以后用同一套代码，先留着 */
+    "mp-weixin" : {
+        "appid" : "",
+        "setting" : {
+            "urlCheck" : false
+        },
+        "usingComponents" : true,
+        "darkmode" : true,
+        "themeLocation" : "theme.json"
+    },
+    "h5" : {
+        "title" : "训录",
+        "router" : {
+            "mode" : "hash"
+        }
+    },
+    "uniStatistics" : {
+        "enable" : false
+    },
+    "vueVersion" : "3"
+}

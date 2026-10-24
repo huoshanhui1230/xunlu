@@ -1,0 +1,79 @@
+/**
+ * 全局基础样式。颜色一律用 packages/tokens/tokens.css 里的变量，页面里不写色值。
+ *
+ * 设计稿按 iPhone 的点（pt）标注，所以字号、按钮高度、触控区域都用 px；
+ * 只有需要随屏宽伸缩的地方才用百分比。
+ */
+
+page {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-family);
+  font-size: var(--font-17);
+  -webkit-font-smoothing: antialiased;
+}
+
+/** 页面根节点：训练页固定深色时在这上面加 .theme-dark */
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  box-sizing: border-box;
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-family);
+}
+
+/** 会跳动的数字：计时、重量、次数，等宽数字避免抖动 */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/** 顶到状态栏的安全区 */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+/** 底部 Home Indicator 的安全区 */
+.safe-bottom {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 8px);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+}
+
+.grow {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.accent {
+  color: var(--color-accent);
+}
+
+/** 可点的文字按钮：触控区域垫到 44px 以上 */
+.text-action {
+  color: var(--color-accent);
+  font-size: var(--font-13);
+  line-height: 19px;
+  padding: 12px 4px;
+  margin: -12px -4px;
+}
