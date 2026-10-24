@@ -45,12 +45,30 @@ export interface LoggedSet {
   readonly closedBy: SaveTrigger;
 }
 
-/** 用户点过「应用」之后，下一组改用提示给的值 */
+/** 点过「应用」之后，下一组的预填改用这两个值 */
 export interface AppliedHint {
   /** 应用到该动作的第几组 */
   readonly setNo: number;
   readonly weight: number;
   readonly reps: number;
+}
+
+/** 当前挂在界面上的那条组间提示 */
+export interface HintState {
+  /** 对应 suggestions 表的一行 */
+  readonly suggestionId: string;
+  /** 这条提示是看着第几组给出来的 */
+  readonly fromSetNo: number;
+  /** 提示针对的是第几组 */
+  readonly setNo: number;
+  readonly ruleId: string;
+  readonly kind: string;
+  /** 提示的下一组重量 */
+  readonly weight: number;
+  /** 提示的下一组次数下限，点「应用」后用它预填 */
+  readonly reps: number;
+  /** 用户点过「应用」没有 */
+  readonly applied: boolean;
 }
 
 /** 本次训练里的一个动作 */
@@ -60,10 +78,13 @@ export interface ActiveExercise {
   readonly position: number;
   /** 本次目标：开始训练时由 adjustForLayoff 处理过 */
   readonly target: Target;
-  /** 本次已经出过几次组间加重提示（显示即计，用户忽略了也算） */
-  readonly increaseHintsUsed: number;
-  /** 点过「应用」的提示；没点过为 null */
-  readonly appliedHint: AppliedHint | null;
+  /**
+   * 出过加重提示的那些组的 id。引擎的「每个动作每次训练最多提示一次加重」看它的长度；
+   * 存成 id 而不是计数，是为了撤销某一组时能把对应的那次提示一并退掉。
+   */
+  readonly increaseHintSetIds: readonly string[];
+  /** 当前挂着的提示；没有为 null */
+  readonly hint: HintState | null;
 }
 
 /** 面板开着：已经点了「完成本组」，还没保存 */
@@ -99,13 +120,12 @@ export interface ActiveSession {
  */
 export type StoreEvent =
   | { readonly kind: 'session_started'; readonly session: ActiveSession }
+  /** 点了「完成本组」，面板打开：立刻落库，App 这时候被杀掉也不丢这一组的起点 */
+  | { readonly kind: 'set_begun'; readonly pending: PendingSet }
   | { readonly kind: 'set_saved'; readonly set: LoggedSet }
+  | { readonly kind: 'pending_cleared' }
   | { readonly kind: 'set_undone'; readonly setId: string }
-  | {
-      readonly kind: 'hints_used_changed';
-      readonly exerciseId: string;
-      readonly increaseHintsUsed: number;
-    }
+  | { readonly kind: 'exercise_state_changed'; readonly exercise: ActiveExercise }
   | { readonly kind: 'current_exercise_changed'; readonly exerciseId: string }
   | { readonly kind: 'suggestion_shown'; readonly suggestion: ShownSuggestion }
   | {
@@ -143,4 +163,10 @@ export interface ShownSuggestion {
 export interface RestRange {
   readonly minSec: number;
   readonly maxSec: number;
+}
+
+/** 状态机每次都返回「新状态 + 要写库的事件」 */
+export interface Transition {
+  readonly session: ActiveSession;
+  readonly events: readonly StoreEvent[];
 }

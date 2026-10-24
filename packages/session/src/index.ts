@@ -17,3 +17,26 @@ export {
   type PrefillInput,
 } from './prefill';
 export { UNDO_WINDOW_MS, canUndo, undoRemainingMs, undoRemainingSeconds } from './undo';
+export {
+  appliedHintOf,
+  applyHint,
+  beginSet,
+  decideHint,
+  endSession,
+  findExercise,
+  increaseHintsUsed,
+  lastSetOf,
+  nextSetNo,
+  recordHintShown,
+  saveSet,
+  setsOf,
+  startSession,
+  switchExercise,
+  undoLastSet,
+  type BeginSetInput,
+  type RecordHintInput,
+  type SaveSetInput,
+  type StartSessionInput,
+} from './recorder';
+export { hintForSet, toSetRecord, type HintInput } from './hint';
+export { restoreSession, type RestoreInput } from './restore';

@@ -90,10 +90,15 @@ export function activeExercise(overrides: Partial<ActiveExercise> = {}): ActiveE
     exerciseId: bench.id,
     position: 0,
     target: target(),
-    increaseHintsUsed: 0,
-    appliedHint: null,
+    increaseHintSetIds: [],
+    hint: null,
     ...overrides,
   };
+}
+
+/** 把 session 推进到「某个动作已经记了 n 组」的状态，用保存的那一刻当时间戳 */
+export function withSets(session: ActiveSession, sets: readonly LoggedSet[]): ActiveSession {
+  return { ...session, sets: [...session.sets, ...sets] };
 }
 
 export function activeSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
