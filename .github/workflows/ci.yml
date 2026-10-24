@@ -18,3 +18,21 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run check -w @xunlu/tokens
+
+  # apps/mobile 是独立的 npm 项目（uni-app 模板锁着 Vite 5.2.8 和 TypeScript 4.9），
+  # 所以单开一个 job 装它自己的依赖
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build:h5

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="动作缩略图占位">
+  <rect width="120" height="120" rx="24" fill="currentColor" opacity="0.08"/>
+  <g fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" opacity="0.55">
+    <path d="M30 60h60"/>
+    <path d="M30 46v28M90 46v28"/>
+    <path d="M42 52v16M78 52v16"/>
+  </g>
+</svg>

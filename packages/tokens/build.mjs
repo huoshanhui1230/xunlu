@@ -53,7 +53,10 @@ if (process.argv.includes('--check')) {
   } catch {
     // 文件不存在时按"不是最新"处理
   }
-  if (current !== css) {
+  // 比对前把换行统一成 LF：Windows 上 git 会把签出的 tokens.css 变成 CRLF，
+  // 内容其实没变，不该因此报"不是最新"
+  const lf = (s) => s.replace(/\r\n/g, '\n');
+  if (lf(current) !== lf(css)) {
     console.error('tokens.css 不是最新的：请运行 npm run build:tokens');
     process.exit(1);
   }

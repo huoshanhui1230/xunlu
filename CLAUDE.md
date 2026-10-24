@@ -5,7 +5,9 @@
 ## 当前阶段
 
 - 设计已定稿（Figma，见下文），建议引擎已完成（`packages/engine`，规则版本 2.0.0，2026-10-24 按确认的规则决定修订，见 `docs/engine-spec.md` 末节）。
-- 下一步：在 `apps/mobile` 用 uni-app 搭 iOS 端，先做记录页和反馈面板的真机版，过第一道放行：5 名有训练基础的测试者都能在 5 秒内记下一组。
+- `apps/mobile` 已建好，主流程前半段能跑：开始训练 → 完成本组 → 三个滚轮确认 → 保存 → 下一组提示 → 应用（对应 Figma 第 11 页 MF02–MF05a）。训练数据先写死推日 6 个动作，动作缩略图用占位图。
+- 下一步：装到 iPhone 上过第一道放行 —— 5 名有训练基础的测试者都能在 5 秒内记下一组。每组用时写在 `sets.log_ms`，也打在控制台。装机步骤见 `docs/ios-真机调试.md`。
+- 还没做：首页、计划、总结、切换动作弹层（BR01）、修改已记录的组（BR02）、训练后的下次目标（`suggestNextTarget` 等还没接）。
 
 ## 已确认的决定
 
@@ -21,18 +23,32 @@
 
 ```
 packages/engine   建议引擎：纯 TypeScript，Vitest 测试
+packages/session  训练过程逻辑：计时、滚轮预填、撤销窗口、状态机、恢复。同样是纯函数
 packages/tokens   设计变量：tokens.json 是源，tokens.css 由脚本生成
-docs/             engine-spec.md（规则说明）、design-tokens.md（设计变量）
-apps/mobile       uni-app 工程（下一步创建）
+docs/             engine-spec.md（规则说明）、design-tokens.md（设计变量）、ios-真机调试.md
+apps/mobile       uni-app 工程。独立的 npm 项目，不在根目录 workspaces 里
 ```
 
+`apps/mobile` 之所以独立：uni-app 模板把 Vite 锁在 5.2.8、TypeScript 是 4.9，和根目录的 vitest 5 / TypeScript 6 对不上。它用路径别名引用 `packages/*` 的源码（别名在 `vite.config.ts` 和 `tsconfig.json` 两处，改一个要改另一个）。
+
 ## 常用命令
+
+根目录（引擎与过程逻辑）：
 
 ```
 npm install            安装依赖（Node 22）
 npm test               跑全部测试
 npm run typecheck      类型检查
 npm run build:tokens   从 tokens.json 重新生成 tokens.css
+```
+
+`apps/mobile`（自己装自己的依赖）：
+
+```
+cd apps/mobile && npm install
+npm run dev:h5         浏览器预览，默认 http://localhost:5173
+npm run dev:app        持续编译到 dist/dev/app，HBuilderX 导入这个目录
+npm run typecheck      vue-tsc，连带检查引擎和过程逻辑的源码
 ```
 
 ## 引擎约定（必须遵守）
@@ -64,6 +80,9 @@ npm run build:tokens   从 tokens.json 重新生成 tokens.css
 - 颜色只用 `packages/tokens/tokens.css` 的变量：状态色只表达状态并配文字；间隔计时用 `--color-timer`，进入推荐区间变 `--color-success`。
 - 字体用 `-apple-system`、`PingFang SC`；计时等跳动的数字加 `font-variant-numeric: tabular-nums`。字号、按钮高度、触控区域用 px。
 - 训练中屏幕常亮、完成一组短震动；App 被系统关闭后重开提示"继续上次训练"。
+- 计时、预填、撤销窗口、状态机、恢复写在 `packages/session`，和引擎一样是纯函数、有单元测试；页面只做显示和碰平台（`services/` 那几个薄封装）。
+- 状态机每一步返回"新状态 + 待写事件"，`storage/events.ts` 照单写库。点"完成本组"先落 `pending_sets`，保存时写 `sets` 再清 `pending`，中途被杀掉也能恢复成自洽的状态。
+- 每组记下 `log_ms`（从点"完成本组"到保存用了多久），这是第一道放行要看的数。
 
 ## 设计稿（Figma）
 
@@ -84,5 +103,7 @@ npm run build:tokens   从 tokens.json 重新生成 tokens.css
 
 - `docs/engine-spec.md`：引擎规则、原因码与建议文案、已确认的规则决定
 - `docs/design-tokens.md`：颜色、间距、圆角、字体
+- `docs/ios-真机调试.md`：Windows 上把 App 装进 iPhone 的每一步
+- `apps/mobile/README.md`：浏览器预览、工程为什么独立、代码怎么分
 - 方案审核与功能设计规划：https://claude.ai/artifact/JM6ecN4v6nwqjkpCc8HBoE
 - 从设计到上架的流程规划：https://claude.ai/code/artifact/1cd6fa8f-d769-4865-ac63-4bbf4ce5ddd1
