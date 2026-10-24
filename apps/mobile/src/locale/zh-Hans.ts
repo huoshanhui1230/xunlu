@@ -30,8 +30,33 @@ export default {
     monthDay: '{month}/{day}',
     /** 10 月 12 日 */
     monthDayCn: '{month} 月 {day} 日',
+    /** 10 月 17 日，星期六 */
+    dateLine: '{month} 月 {day} 日，{weekday}',
+    /** 5 天 */
+    days: '{days} 天',
     /** 用时 2.4 秒：只打控制台，界面上不显示 */
     logSeconds: '用时 {seconds} 秒',
+  },
+
+  weekday: {
+    sun: '星期日',
+    mon: '星期一',
+    tue: '星期二',
+    wed: '星期三',
+    thu: '星期四',
+    fri: '星期五',
+    sat: '星期六',
+  },
+
+  home: {
+    title: '训练',
+    nextDay: '下个训练日',
+    exercises: '动作',
+    plannedSets: '计划组数',
+    sinceLast: '距上次',
+    firstTime: '第一次练',
+    start: '开始训练',
+    localOnly: '记录保存在本机',
   },
 
   loadType: {

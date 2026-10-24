@@ -69,6 +69,33 @@ page {
   color: var(--color-accent);
 }
 
+/**
+ * uni 自带的 showModal 在 H5 下是写死的浅色面板，深色模式里标题会继承页面的浅色文字，
+ * 变成白底白字。按变量重新上色，两套主题都能看清。
+ * App 端 showModal 是系统原生弹窗，自己跟随深浅色，这段样式碰不到它。
+ */
+.uni-modal {
+  background-color: var(--color-sheet) !important;
+}
+
+.uni-modal__title,
+.uni-modal__bd {
+  color: var(--color-ink) !important;
+}
+
+.uni-modal__btn_default {
+  color: var(--color-muted) !important;
+}
+
+.uni-modal__btn_primary {
+  color: var(--color-accent) !important;
+}
+
+.uni-modal__ft,
+.uni-modal__btn {
+  border-color: var(--color-line) !important;
+}
+
 /** 可点的文字按钮：触控区域垫到 44px 以上 */
 .text-action {
   color: var(--color-accent);
