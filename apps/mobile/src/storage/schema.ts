@@ -4,12 +4,16 @@
  * 表结构的意思：
  *   exercises           动作库。本轮只有推日的 6 个动作，启动时补齐
  *   sessions            一次训练。ended_at 为空就是进行中，重开 App 时按它恢复
- *   session_exercises   本次每个动作的目标（已过 adjustForLayoff）与提示状态
+ *   session_exercises   本次每个动作的目标（已过 adjustForLayoff）与当前挂着的提示
  *   pending_sets        点了「完成本组」、还没保存的那一组。立刻写，所以这时被杀掉也不丢
  *   sets                每一条记录。log_ms 是从点完成本组到保存用了多久，第一道放行看它
  *   suggestions         显示过的每一条建议，带规则版本、规则号和用户的决定，用来回溯和调参
  */
-export const SCHEMA_VERSION = 1;
+/**
+ * 2：跟引擎规则 2.0.0 走 —— 保守模式取消、「本次已加过重」由引擎从实际重量算，
+ *    所以 session_exercises 不再存 increase_hint_set_ids。
+ */
+export const SCHEMA_VERSION = 2;
 
 export const DDL: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -58,7 +62,6 @@ export const DDL: readonly string[] = [
      extended INTEGER NOT NULL DEFAULT 0,
      target_rir INTEGER NOT NULL,
      layoff_adjusted INTEGER NOT NULL DEFAULT 0,
-     increase_hint_set_ids TEXT NOT NULL DEFAULT '[]',
      hint TEXT,
      PRIMARY KEY (session_id, exercise_id)
    )`,

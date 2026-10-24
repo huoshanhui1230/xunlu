@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { suggestNextTarget, type Suggestion } from '../src';
-import { bench, normal, session } from './helpers';
+import { bench, session } from './helpers';
 
 /** 方案第八节"算例"：杠铃卧推，计划 3 组 × 6–8 次，默认增量 2.5 kg，加重上限 5% */
 describe('方案算例：杠铃卧推 3 × 6–8', () => {
@@ -12,12 +12,7 @@ describe('方案算例：杠铃卧推 3 × 6–8', () => {
     session('2026-10-15', [[82.5, 7, 1], [82.5, 6, 1], [82.5, 5, 0]]),
   ];
   const run = (i: number): Suggestion =>
-    suggestNextTarget({
-      exercise: bench,
-      history: sessions.slice(0, i),
-      session: sessions[i]!,
-      settings: normal,
-    }) as Suggestion;
+    suggestNextTarget({ exercise: bench, history: sessions.slice(0, i), session: sessions[i]! }) as Suggestion;
 
   it('第 1 次：基线，80 kg，先重复本次表现', () => {
     const s = run(0);

@@ -21,10 +21,10 @@ export {
   appliedHintOf,
   applyHint,
   beginSet,
+  clearHint,
   decideHint,
   endSession,
   findExercise,
-  increaseHintsUsed,
   lastSetOf,
   nextSetNo,
   recordHintShown,
@@ -33,10 +33,12 @@ export {
   startSession,
   switchExercise,
   undoLastSet,
+  updateSet,
   type BeginSetInput,
   type RecordHintInput,
   type SaveSetInput,
   type StartSessionInput,
+  type UpdateSetInput,
 } from './recorder';
 export { hintForSet, toSetRecord, type HintInput } from './hint';
 export { restoreSession, type RestoreInput } from './restore';

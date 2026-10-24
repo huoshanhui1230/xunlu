@@ -90,7 +90,6 @@ export function activeExercise(overrides: Partial<ActiveExercise> = {}): ActiveE
     exerciseId: bench.id,
     position: 0,
     target: target(),
-    increaseHintSetIds: [],
     hint: null,
     ...overrides,
   };

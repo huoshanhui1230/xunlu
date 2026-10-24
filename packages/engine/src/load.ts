@@ -1,8 +1,7 @@
 /**
  * 负重方式相关的规则：怎样算"加一档""减一档"，加重幅度能不能算。
  */
-import type { EngineParams } from './params';
-import type { ExerciseConfig, Settings, WeightChange } from './types';
+import type { ExerciseConfig, WeightChange } from './types';
 import { EPS, gridFloor, round2 } from './math';
 
 /** 增量为 0：只加次数，不出加重建议 */
@@ -56,9 +55,11 @@ export function reduceLoad(ex: ExerciseConfig, weight: number, cut: number): num
   return gridFloor(weight * (1 - cut), ex.increment);
 }
 
-/** 本次可用的加重上限 */
-export function increaseCap(ex: ExerciseConfig, settings: Settings, p: EngineParams): number {
-  return settings.conservative ? Math.min(ex.maxIncreasePct, p.conservativeMaxIncreasePct) : ex.maxIncreasePct;
+/** 加一档的相对幅度；无法计算时为 null */
+export function stepPct(ex: ExerciseConfig, weight: number): number | null {
+  const next = stepHarder(ex, weight);
+  if (next === null || !canMeasurePct(ex) || !(weight > 0)) return null;
+  return (next - weight) / weight;
 }
 
 export function weightChange(ex: ExerciseConfig, from: number, to: number): WeightChange {

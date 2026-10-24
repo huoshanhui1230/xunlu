@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-- 设计已定稿（Figma，见下文），建议引擎已完成（`packages/engine`，规则版本 1.0.0）。
+- 设计已定稿（Figma，见下文），建议引擎已完成（`packages/engine`，规则版本 2.0.0，2026-10-24 按确认的规则决定修订，见 `docs/engine-spec.md` 末节）。
 - `apps/mobile` 已建好，主流程前半段能跑：开始训练 → 完成本组 → 三个滚轮确认 → 保存 → 下一组提示 → 应用（对应 Figma 第 11 页 MF02–MF05a）。训练数据先写死推日 6 个动作，动作缩略图用占位图。
 - 下一步：装到 iPhone 上过第一道放行 —— 5 名有训练基础的测试者都能在 5 秒内记下一组。每组用时写在 `sets.log_ms`，也打在控制台。装机步骤见 `docs/ios-真机调试.md`。
 - 还没做：首页、计划、总结、切换动作弹层（BR01）、修改已记录的组（BR02）、训练后的下次目标（`suggestNextTarget` 等还没接）。
@@ -15,6 +15,7 @@
 - 主题：D 浅色、E 深色两套同时做，跟随系统；训练页可固定深色（"我的"里的开关）。
 - 英文界面暂缓，但所有界面文字都放进 i18n 词典，不写死在页面里。
 - MVP 没有账号和服务器：数据全部存在手机本地 SQLite；每次"完成本组"、保存反馈都立即写库。
+- 引擎只给建议，不限制用户：没有保守模式；减重只是建议，记录时用户可以改；用户自己换了重量，就以实际练的重量为新基准。
 - 不做：动作教学、疼痛上报、组间歇统计与限制、热身组记录、心率与手表、饮食。
 - 安全提示固定出现：开始训练时"先完成热身再开始记录，热身组不记录；训练中出现疼痛或不适，请立即停止该动作"；建议页底部"以上为训练参考，不构成医疗建议"。
 
@@ -62,18 +63,20 @@ npm run typecheck      vue-tsc，连带检查引擎和过程逻辑的源码
 
 | 时机 | 调用 |
 | --- | --- |
-| 开始训练、预填之前 | `adjustForLayoff`：很久没练的动作先减重 |
-| 每组保存反馈后 | `suggestNextSet`：下一组提示，点"应用"才改预填 |
+| 开始训练、预填之前 | `adjustForLayoff`：超过 14 天没练的动作给出减重建议（`notice: 'reduce_or_retest'`），提示"减重，或按原重量重新测试"，由用户选：减重用 `target`，重新测试用 `previous` |
+| 每组保存反馈后 | `suggestNextSet`：下一组提示。加重一档在上限内时给具体重量，点"应用"才改预填；一档超过上限或无法确认幅度时只提醒方向（`kind: 'nudge'`），不给数值；第 1 组没填 RIR 时返回 `need_rir`，提示用户补填 |
 | 训练结束 | `suggestNextTarget`（每个动作的下次目标）、`detectRecords`、`exerciseVolume`、`muscleSetCounts`、`bestSet` |
 | 训练结束后 | `evaluateStatus`：首页状态卡与总结页顶部提醒 |
-| 用户采纳减载 | `planDeload` |
+| 建议减载时 | 先告知原因并询问（进入减载周 / 推迟一周 / 忽略）；用户选进入才调用 `planDeload`，之后首页显示减载周，`suggestNextTarget` 传 `inDeload` 和减载前的目标 |
 
-建议卡片的文案按 `reason` 和 `detail` 从词典取，建议文案见 `docs/engine-spec.md`。
+建议卡片的文案按 `reason`（组间提示按 `kind`、`nudge`）和 `detail` 从词典取，建议文案见 `docs/engine-spec.md`。
 
 ## App 侧约定（UI 阶段）
 
 - 计时只存时间戳（开始记录、每组完成、结束训练），界面每秒重绘，回到前台立即重算；不倒计时，不限制组间歇。
+- 开始训练弹层：热身与"疼痛即停"提醒固定在"开始记录"按钮上方，不随训练日列表滚动；训练日多时只滚动列表（训练日可能多于 5 个）。
 - 记录页只有一个主按钮"完成本组"；反馈面板是重量、次数、RIR 三个滚轮，数值预填，重量按动作默认增量取值；关闭面板也保存；保存后 5 秒内可撤销。
+- RIR 预填本次该动作上一组的值；每个动作第 1 组不预填 RIR，没填时下一组提示改为请用户补填。设置里关闭"RIR 显示"后，面板不显示 RIR 滚轮，`suggestNextSet` 传 `rirEnabled: false`。
 - 颜色只用 `packages/tokens/tokens.css` 的变量：状态色只表达状态并配文字；间隔计时用 `--color-timer`，进入推荐区间变 `--color-success`。
 - 字体用 `-apple-system`、`PingFang SC`；计时等跳动的数字加 `font-variant-numeric: tabular-nums`。字号、按钮高度、触控区域用 px。
 - 训练中屏幕常亮、完成一组短震动；App 被系统关闭后重开提示"继续上次训练"。
@@ -98,7 +101,7 @@ npm run typecheck      vue-tsc，连带检查引擎和过程逻辑的源码
 
 ## 相关文档
 
-- `docs/engine-spec.md`：引擎规则、原因码与建议文案、需要确认的解释
+- `docs/engine-spec.md`：引擎规则、原因码与建议文案、已确认的规则决定
 - `docs/design-tokens.md`：颜色、间距、圆角、字体
 - `docs/ios-真机调试.md`：Windows 上把 App 装进 iPhone 的每一步
 - `apps/mobile/README.md`：浏览器预览、工程为什么独立、代码怎么分

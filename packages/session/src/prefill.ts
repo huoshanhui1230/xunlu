@@ -5,7 +5,10 @@
  *   1. 刚点过「应用」，且提示就是给这一组的 → 用提示的重量和次数
  *   2. 本次该动作已经记过组 → 用上一组的值（最省事：练法没变就直接确认）
  *   3. 本动作的第一组 → 用本次目标
- * 还能再做几次（RIR）跟着上一组走；第一组用目标余力。上一组没填就保持没填。
+ *
+ * 还能再做几次（RIR）跟着上一组走，上一组没填就保持没填。
+ * **每个动作第 1 组不预填 RIR** —— 要用户自己填一次，之后的组才有值可沿用；
+ * 没填时引擎会返回 A0，提示补填（见 docs/engine-spec.md 的 A 节）。
  *
  * 重量按动作的默认增量取值，所以滚轮转一格就是加一片。增量为 0 的动作（俯卧撑、卷腹）
  * 只有一个重量可选，只改次数。
@@ -51,8 +54,8 @@ export function prefillFor(input: PrefillInput): WheelValues {
 
   const weight = applied?.weight ?? last?.weight ?? target.weight;
   const reps = applied?.reps ?? last?.reps ?? targetRepsFor(target, setNo);
-  // 上一组没填 RIR 就继续不填，不要拿目标余力顶上
-  const rir = last !== undefined ? last.rir : target.targetRir;
+  // 第 1 组不预填 RIR；之后沿用上一组，上一组没填就继续不填
+  const rir = last !== undefined ? last.rir : null;
 
   return { weight: round2(weight), reps, rir };
 }

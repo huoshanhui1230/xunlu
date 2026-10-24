@@ -2,9 +2,12 @@
 /**
  * MF04 反馈面板（设计稿第 11 页 84:1148 / 84:14317）。
  *
- * 只有三个滚轮：重量、次数、还能再做几次。数值已经预填好，不动也能直接确认。
+ * 三个滚轮：重量、次数、还能再做几次。数值已经预填好，不动也能直接确认。
  * 点确认、点关闭、再点一次「完成本组」都按当前值保存，不丢组 —— 面板本身不判断，
  * 只负责把当前值报上去，由页面决定 closedBy 记成哪一种。
+ *
+ * RIR 这一列：每个动作第 1 组不预填，所以多一行「—」表示还没填；
+ * 设置里关掉「RIR 显示」时整列不出现。
  */
 import { computed } from 'vue';
 import { optionIndex, type WheelValues } from '@xunlu/session';
@@ -14,16 +17,20 @@ import type { WheelColumn } from './wheel';
 import { t } from '@/locale';
 import { trimNumber, type Unit } from '@/utils/format';
 
-const props = defineProps<{
-  setNo: number;
-  exerciseName: string;
-  loadTypeLabel: string;
-  unit: Unit;
-  values: WheelValues;
-  weightOptions: number[];
-  repOptions: number[];
-  rirOptions: number[];
-}>();
+const props = withDefaults(
+  defineProps<{
+    setNo: number;
+    exerciseName: string;
+    loadTypeLabel: string;
+    unit: Unit;
+    values: WheelValues;
+    weightOptions: number[];
+    repOptions: number[];
+    rirOptions: number[];
+    rirEnabled?: boolean;
+  }>(),
+  { rirEnabled: true },
+);
 
 const emit = defineEmits<{
   (e: 'update:values', values: WheelValues): void;
@@ -31,33 +38,48 @@ const emit = defineEmits<{
   (e: 'note'): void;
 }>();
 
-const columns = computed<WheelColumn[]>(() => [
-  {
-    key: 'weight',
-    label: t('feedback.columnWeight', { unit: t(`unit.${props.unit}`) }),
-    options: props.weightOptions.map(trimNumber),
-  },
-  { key: 'reps', label: t('feedback.columnReps'), options: props.repOptions.map(String) },
-  { key: 'rir', label: t('feedback.columnRir'), options: props.rirOptions.map(String) },
-]);
+/** 第一行是「还没填」，后面才是 0、1、2… */
+const rirValues = computed<(number | null)[]>(() => [null, ...props.rirOptions]);
 
-const indexes = computed<number[]>(() => [
-  optionIndex(props.weightOptions, props.values.weight),
-  optionIndex(props.repOptions, props.values.reps),
-  optionIndex(props.rirOptions, props.values.rir),
-]);
+const columns = computed<WheelColumn[]>(() => {
+  const list: WheelColumn[] = [
+    {
+      key: 'weight',
+      label: t('feedback.columnWeight', { unit: t(`unit.${props.unit}`) }),
+      options: props.weightOptions.map(trimNumber),
+    },
+    { key: 'reps', label: t('feedback.columnReps'), options: props.repOptions.map(String) },
+  ];
+  if (props.rirEnabled) {
+    list.push({
+      key: 'rir',
+      label: t('feedback.columnRir'),
+      options: rirValues.value.map((v) => (v === null ? t('feedback.rirEmpty') : String(v))),
+    });
+  }
+  return list;
+});
 
-const footnote = computed(() =>
-  props.values.rir === null
-    ? t('feedback.footnoteNoRir', { loadType: props.loadTypeLabel })
-    : t('feedback.footnote', { loadType: props.loadTypeLabel, rir: props.values.rir }),
-);
+const indexes = computed<number[]>(() => {
+  const list = [optionIndex(props.weightOptions, props.values.weight), optionIndex(props.repOptions, props.values.reps)];
+  if (props.rirEnabled) {
+    list.push(props.values.rir === null ? 0 : 1 + optionIndex(props.rirOptions, props.values.rir));
+  }
+  return list;
+});
+
+const footnote = computed(() => {
+  if (!props.rirEnabled || props.values.rir === null) {
+    return t('feedback.footnoteNoRir', { loadType: props.loadTypeLabel });
+  }
+  return t('feedback.footnote', { loadType: props.loadTypeLabel, rir: props.values.rir });
+});
 
 function onWheel(next: number[]): void {
   emit('update:values', {
     weight: props.weightOptions[next[0] ?? 0] ?? props.values.weight,
     reps: props.repOptions[next[1] ?? 0] ?? props.values.reps,
-    rir: props.rirOptions[next[2] ?? 0] ?? props.values.rir,
+    rir: props.rirEnabled ? (rirValues.value[next[2] ?? 0] ?? null) : null,
   });
 }
 </script>
@@ -144,5 +166,4 @@ function onWheel(next: number[]): void {
   line-height: 16px;
   padding-bottom: var(--space-8);
 }
-
 </style>

@@ -3,9 +3,9 @@ import {
   appliedHintOf,
   applyHint,
   beginSet,
+  clearHint,
   decideHint,
   endSession,
-  increaseHintsUsed,
   nextSetNo,
   recordHintShown,
   saveSet,
@@ -13,6 +13,7 @@ import {
   startSession,
   switchExercise,
   undoLastSet,
+  updateSet,
   type ActiveSession,
   type HintState,
   type LoggedSet,
@@ -30,7 +31,11 @@ function fresh(): ActiveSession {
     startedAt: T0,
     exercises: [
       activeExercise({ exerciseId: bench.id, position: 0 }),
-      activeExercise({ exerciseId: inclineDb.id, position: 1, target: target({ weight: 24, reps: [12, 12, 12], repRange: { min: 8, max: 12 } }) }),
+      activeExercise({
+        exerciseId: inclineDb.id,
+        position: 1,
+        target: target({ weight: 24, reps: [12, 12, 12], repRange: { min: 8, max: 12 } }),
+      }),
     ],
   }).session;
 }
@@ -56,6 +61,9 @@ function logSet(
   return { session: saved.session, set: event.set };
 }
 
+const hintOf = (session: ActiveSession, exerciseId = bench.id) =>
+  session.exercises.find((e) => e.exerciseId === exerciseId)?.hint ?? null;
+
 describe('startSession', () => {
   it('按顺序排动作，当前动作是第一个', () => {
     const { session, events } = startSession({
@@ -78,15 +86,21 @@ describe('startSession', () => {
 });
 
 describe('beginSet', () => {
-  it('点完成本组立刻落库，带上预填和时间戳', () => {
+  it('点完成本组立刻落库；第 1 组不预填 RIR', () => {
     const { session, events } = beginSet(fresh(), { exercise: bench, doneAt: T0 + 60_000 });
     expect(kinds(events)).toEqual(['set_begun']);
     expect(session.pending).toEqual({
       exerciseId: bench.id,
       setNo: 1,
       doneAt: T0 + 60_000,
-      prefill: { weight: 80, reps: 8, rir: 2 },
+      prefill: { weight: 80, reps: 8, rir: null },
     });
+  });
+
+  it('第 2 组沿用上一组填过的 RIR', () => {
+    const { session } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_000, weight: 80, reps: 8, rir: 2 });
+    const begun = beginSet(session, { exercise: bench, doneAt: T0 + 180_000 });
+    expect(begun.session.pending?.prefill).toEqual({ weight: 80, reps: 8, rir: 2 });
   });
 
   it('面板已经开着就不再开一次', () => {
@@ -124,19 +138,6 @@ describe('saveSet', () => {
     expect(setsOf(two.session, bench.id)).toHaveLength(2);
   });
 
-  it('保存后面板关掉，组进列表', () => {
-    const { session, events } = saveSet(beginSet(fresh(), { exercise: bench, doneAt: T0 }).session, {
-      id: 'a',
-      values: wheel(82.5, 6, 1),
-      savedAt: T0 + 3_000,
-      closedBy: 'dismiss',
-    });
-    expect(kinds(events)).toEqual(['set_saved', 'pending_cleared']);
-    expect(session.pending).toBeNull();
-    expect(session.sets).toHaveLength(1);
-    expect(session.sets[0]?.closedBy).toBe('dismiss');
-  });
-
   it('关闭面板和再点一次完成本组都照样存，只是来源不同', () => {
     for (const closedBy of ['confirm', 'dismiss', 'done_again'] as const) {
       const begun = beginSet(fresh(), { exercise: bench, doneAt: T0 }).session;
@@ -147,15 +148,36 @@ describe('saveSet', () => {
   });
 
   it('面板没开时什么也不做', () => {
-    const session = fresh();
-    expect(saveSet(session, { id: 'a', values: wheel(80, 8, 2), savedAt: T0, closedBy: 'confirm' }).events).toEqual([]);
+    expect(saveSet(fresh(), { id: 'a', values: wheel(80, 8, 2), savedAt: T0, closedBy: 'confirm' }).events).toEqual([]);
   });
 
   it('预填原样存下来，方便看用户改了多少', () => {
     const begun = beginSet(fresh(), { exercise: bench, doneAt: T0 }).session;
     const { session } = saveSet(begun, { id: 'a', values: wheel(85, 6, 0), savedAt: T0 + 5_000, closedBy: 'confirm' });
-    expect(session.sets[0]?.prefill).toEqual({ weight: 80, reps: 8, rir: 2 });
+    expect(session.sets[0]?.prefill).toEqual({ weight: 80, reps: 8, rir: null });
     expect(session.sets[0]?.weight).toBe(85);
+  });
+});
+
+describe('updateSet', () => {
+  it('补填 RIR 改的是同一条记录，不新增一组', () => {
+    const { session, set } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_000, weight: 80, reps: 8, rir: null });
+    const { session: after, events } = updateSet(session, { setId: set.id, values: wheel(80, 8, 2) });
+    expect(kinds(events)).toEqual(['set_saved']);
+    expect(after.sets).toHaveLength(1);
+    expect(after.sets[0]?.rir).toBe(2);
+  });
+
+  it('补填不改记这一组用了多久', () => {
+    const { session, set } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_400, weight: 80, reps: 8, rir: null });
+    const after = updateSet(session, { setId: set.id, values: wheel(80, 8, 2) }).session;
+    expect(after.sets[0]?.logMs).toBe(2_400);
+    expect(after.sets[0]?.doneAt).toBe(T0);
+  });
+
+  it('找不到那一组就什么也不做', () => {
+    const { session } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_000, weight: 80, reps: 8, rir: 2 });
+    expect(updateSet(session, { setId: 'nope', values: wheel(80, 8, 2) }).events).toEqual([]);
   });
 });
 
@@ -170,33 +192,34 @@ describe('nextSetNo', () => {
 });
 
 describe('组间提示', () => {
-  const shown = (session: ActiveSession, set: LoggedSet, kind: string, weight: number) =>
+  const shown = (
+    session: ActiveSession,
+    set: LoggedSet,
+    kind: string,
+    weight: number,
+    reps: number | null = 6,
+  ) =>
     recordHintShown(session, {
       exerciseId: bench.id,
       fromSet: set,
       suggestionId: 'sug-1',
-      ruleId: kind === 'increase' ? 'A1' : 'A4',
+      ruleId: kind === 'increase' || kind === 'nudge' ? 'A1' : kind === 'need_rir' ? 'A0' : 'A4',
       kind,
       weight,
-      reps: 6,
-      ruleVersion: '1.0.0',
+      reps,
+      ruleVersion: '2.0.0',
       blockedBy: null,
       payload: '{}',
       createdAt: set.savedAt,
     });
 
-  it('显示即写库，加重提示显示即计数', () => {
+  it('显示即写库，并记下是看着哪一组给的', () => {
     const { session, set } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_000, weight: 80, reps: 8, rir: 4 });
     const { session: withHint, events } = shown(session, set, 'increase', 82.5);
     expect(kinds(events)).toEqual(['suggestion_shown', 'exercise_state_changed']);
-    expect(increaseHintsUsed(withHint.exercises[0]!)).toBe(1);
-    expect(withHint.exercises[0]?.hint?.setNo).toBe(2);
-  });
-
-  it('保持类的提示不占加重次数', () => {
-    const { session, set } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_000, weight: 80, reps: 8, rir: 2 });
-    const { session: withHint } = shown(session, set, 'hold', 80);
-    expect(increaseHintsUsed(withHint.exercises[0]!)).toBe(0);
+    expect(hintOf(withHint)?.setNo).toBe(2);
+    expect(hintOf(withHint)?.fromWeight).toBe(80);
+    expect(hintOf(withHint)?.fromReps).toBe(8);
   });
 
   it('点应用只改下一组预填，已保存的组不动', () => {
@@ -217,11 +240,26 @@ describe('组间提示', () => {
     expect(begun.session.pending?.prefill).toEqual({ weight: 82.5, reps: 6, rir: 4 });
   });
 
+  it('只提醒方向的提示没法应用，也不改预填', () => {
+    const { session, set } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_000, weight: 80, reps: 8, rir: 6 });
+    const withHint = shown(session, set, 'nudge', 80, null).session;
+    expect(applyHint(withHint, bench.id, T0 + 3_000).events).toEqual([]);
+    expect(appliedHintOf(withHint.exercises[0]!)).toBeNull();
+  });
+
   it('应用过一次就不重复记', () => {
     const { session, set } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_000, weight: 80, reps: 8, rir: 4 });
     const withHint = shown(session, set, 'increase', 82.5).session;
     const once = applyHint(withHint, bench.id, T0 + 3_000).session;
     expect(applyHint(once, bench.id, T0 + 4_000).events).toEqual([]);
+  });
+
+  it('补填完把卡片收起来', () => {
+    const { session, set } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_000, weight: 80, reps: 8, rir: null });
+    const withHint = shown(session, set, 'need_rir', 80, null).session;
+    const { session: after, events } = clearHint(withHint, bench.id);
+    expect(kinds(events)).toEqual(['exercise_state_changed']);
+    expect(hintOf(after)).toBeNull();
   });
 
   it('存下一组时结算提示的去向，并把卡片收起来', () => {
@@ -241,14 +279,12 @@ describe('组间提示', () => {
       decision: 'applied',
       decidedAt: T0 + 182_000,
     });
-    expect(after.exercises[0]?.hint).toBeNull();
-    // 已经用掉的那次加重提示不会因为卡片收起来就退回去
-    expect(increaseHintsUsed(after.exercises[0]!)).toBe(1);
+    expect(hintOf(after)).toBeNull();
   });
 });
 
 describe('decideHint', () => {
-  const hint: HintState = {
+  const base: HintState = {
     suggestionId: 'sug-1',
     fromSetNo: 1,
     setNo: 2,
@@ -256,19 +292,34 @@ describe('decideHint', () => {
     kind: 'increase',
     weight: 82.5,
     reps: 6,
+    fromWeight: 80,
+    fromReps: 8,
     applied: false,
   };
 
   it('照着提示的重量练了就算采纳，哪怕没点应用', () => {
-    expect(decideHint(hint, wheel(82.5, 6, 2))).toBe('applied');
+    expect(decideHint(base, wheel(82.5, 6, 2))).toBe('applied');
   });
 
   it('点过应用又改了重量算修改', () => {
-    expect(decideHint({ ...hint, applied: true }, wheel(80, 8, 2))).toBe('modified');
+    expect(decideHint({ ...base, applied: true }, wheel(80, 8, 2))).toBe('modified');
   });
 
   it('没点应用也没照做算忽略', () => {
-    expect(decideHint(hint, wheel(80, 8, 2))).toBe('ignored');
+    expect(decideHint(base, wheel(80, 8, 2))).toBe('ignored');
+  });
+
+  it('只提醒方向：真的加了重或多做了就算照做', () => {
+    const nudge: HintState = { ...base, kind: 'nudge', ruleId: 'A1', weight: 80, reps: null };
+    expect(decideHint(nudge, wheel(82.5, 8, 2))).toBe('applied');
+    expect(decideHint(nudge, wheel(80, 9, 2))).toBe('applied');
+    expect(decideHint(nudge, wheel(80, 8, 2))).toBe('ignored');
+  });
+
+  it('提示补填：这次填上了就算照做', () => {
+    const needRir: HintState = { ...base, kind: 'need_rir', ruleId: 'A0', weight: 80, reps: null };
+    expect(decideHint(needRir, wheel(80, 8, 2))).toBe('applied');
+    expect(decideHint(needRir, wheel(80, 8, null))).toBe('ignored');
   });
 });
 
@@ -286,7 +337,7 @@ describe('undoLastSet', () => {
     expect(undoLastSet(session, set.savedAt + 5_000).events).toEqual([]);
   });
 
-  it('撤销连带退掉这一组引出的加重提示', () => {
+  it('撤销连带把这一组引出的提示收起来', () => {
     const { session, set } = logSet(fresh(), { id: 'a', doneAt: T0, savedAt: T0 + 2_000, weight: 80, reps: 8, rir: 4 });
     const withHint = recordHintShown(session, {
       exerciseId: bench.id,
@@ -296,17 +347,15 @@ describe('undoLastSet', () => {
       kind: 'increase',
       weight: 82.5,
       reps: 6,
-      ruleVersion: '1.0.0',
+      ruleVersion: '2.0.0',
       blockedBy: null,
       payload: '{}',
       createdAt: set.savedAt,
     }).session;
-    expect(increaseHintsUsed(withHint.exercises[0]!)).toBe(1);
 
     const { session: after, events } = undoLastSet(withHint, set.savedAt + 1_000);
     expect(kinds(events)).toEqual(['set_undone', 'exercise_state_changed']);
-    expect(increaseHintsUsed(after.exercises[0]!)).toBe(0);
-    expect(after.exercises[0]?.hint).toBeNull();
+    expect(hintOf(after)).toBeNull();
   });
 
   it('面板开着时不撤', () => {

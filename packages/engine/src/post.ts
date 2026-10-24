@@ -3,12 +3,13 @@
  *
  * 按顺序判断，命中即停：
  *   B1 基线：第一次记录该动作 → 维持重量，先重复本次表现
- *   B2 回归：距上次做该动作超过 14 天 → 减 10%（超过 28 天减 20%）
- *   B3 失败：任一组低于下限且 RIR 为 0 或没填 → 第 1 次维持；连续第 2 次减 5–10%
- *   B4 加重：达标，且连续 2 次达标或本次每组 RIR ≥ 2 → 加一档，次数回到下限
+ *   B2 回归：距上次超过 14 天 → 以这次表现为新基准，保持重量、不加重（没做到下限按 B3 处理）
+ *   B3 失败：任一组低于下限且 RIR 为 0 或没填 → 第 1 次维持重量，先做到下限；连续第 2 次减 5–10%
+ *   B4 加重：达标，且"上一次在同样或更重的重量下也达标"或"本次每组 RIR ≥ 2" → 加一档，次数回到下限
  *   B5 推进：其余 → 维持重量，未到上限的组 +1 次
  *   B6 平台期（叠加）：重量连续不变、最近 3 次平均估算 1RM 都没超过此前最佳 → 改为平台期建议
- * 凡是不确定的情况，只给维持或减量。所有结果再经过 guardrails 复核。
+ * 引擎只给建议，不限制用户：用户自己换了重量，就以实际练的重量为新基准。
+ * 所有结果再经过 guardrails 复核。
  */
 import { DEFAULT_PARAMS, type EngineParams } from './params';
 import type {
@@ -20,35 +21,33 @@ import type {
   PostReason,
   PostRuleId,
   RepRange,
-  Settings,
   Suggestion,
   SuggestionKind,
   Target,
 } from './types';
 import {
+  activeHistory,
   allRirAtLeast,
   evaluateSession,
   extendRange,
+  gapFor,
   plannedSetsFor,
-  priorSessions,
   type SessionEval,
 } from './evaluate';
 import { countedSets, meanE1rmOf, workingWeightOf } from './sets';
-import { canMeasurePct, increaseCap, isHarder, isRepsOnly, reduceLoad, stepHarder, weightChange } from './load';
-import { daysBetween, EPS, round2, sameWeight } from './math';
-import { layoffCut } from './layoff';
+import { canMeasurePct, isHarder, isRepsOnly, reduceLoad, stepHarder, weightChange } from './load';
+import { EPS, round2, sameWeight } from './math';
 import { checkSuggestion } from './guardrails';
 
 export interface PostInput {
   readonly exercise: ExerciseConfig;
-  /** 该动作此前的训练，按时间从旧到新，不含本次；建议传最近 6 次以上 */
+  /** 该动作此前的训练（含减载周），不含本次；建议传最近 8 周 */
   readonly history: readonly ExerciseSession[];
   /** 刚结束的这次 */
   readonly session: ExerciseSession;
-  readonly settings: Settings;
-  /** 本次在用的目标（上次采纳的建议），用来延续"上限 +3"和回归减重的状态 */
+  /** 本次在用的目标（上次采纳的建议）：本次按这个重量练时，延续"上限 +3" */
   readonly currentTarget?: Target;
-  /** 当前处于减载周 */
+  /** 用户已选择进入减载周 */
   readonly inDeload?: boolean;
   /** 减载前的目标：减载期间原样返回 */
   readonly preDeloadTarget?: Target;
@@ -68,6 +67,9 @@ interface Ctx {
   /** 本次工作重量 */
   readonly w: number;
   readonly repsDone: readonly number[];
+  readonly prior: readonly ExerciseSession[];
+  readonly active: readonly ExerciseSession[];
+  readonly gapDays: number | null;
 }
 
 interface Draft {
@@ -86,10 +88,13 @@ export function suggestNextTarget(input: PostInput): Suggestion | null {
   const p = input.params ?? DEFAULT_PARAMS;
   const ex = input.exercise;
   const base = ex.repRange;
-  const extended = input.currentTarget?.extended === true;
+  const ww = workingWeightOf(ex, countedSets(input.session));
+  if (ww === null) return null;
+  const ct = input.currentTarget;
+  const extended = ct !== undefined && ct.extended && sameWeight(ct.weight, ww);
   const eff = extended ? extendRange(base, p) : base;
-  const cur = evaluateSession(ex, input.session, eff, p);
-  if (!cur) return null;
+  const cur = evaluateSession(ex, input.session, eff, p) as SessionEval;
+  const win = activeHistory(input.history, input.session, p);
   const c: Ctx = {
     input,
     p,
@@ -101,6 +106,9 @@ export function suggestNextTarget(input: PostInput): Suggestion | null {
     planned: plannedSetsFor(ex, cur.workingSets.length, p),
     w: cur.workingWeight,
     repsDone: cur.workingSets.map((s) => s.reps),
+    prior: win.prior,
+    active: win.active,
+    gapDays: win.gapDays,
   };
   return finish(c, decide(c));
 }
@@ -121,10 +129,8 @@ function decide(c: Ctx): Draft {
     };
   }
 
-  const prior = priorSessions(input.history);
-
   // B1 基线
-  if (prior.length === 0) {
+  if (c.prior.length === 0) {
     return {
       ruleId: 'B1',
       kind: 'hold',
@@ -135,20 +141,36 @@ function decide(c: Ctx): Draft {
     };
   }
 
-  const prev = prior[prior.length - 1] as ExerciseSession;
-  const prevEval = evaluateSession(ex, prev, eff, p) as SessionEval;
-
-  // B2 回归
-  const gapDays = daysBetween(prev.date, input.session.date);
-  const cut = layoffCut(gapDays, p);
-  if (cut > 0 && !followedLayoff(c, prevEval.workingWeight, cut)) {
-    return layoffDraft(c, cut, gapDays);
+  // B2 回归后的第一次：以这次表现为新基准
+  if (c.active.length === 0) {
+    const gapDays = c.gapDays ?? 0;
+    if (cur.failure) {
+      return {
+        ruleId: 'B3',
+        kind: 'hold',
+        reason: 'failure_first',
+        target: makeTarget(c, w, fill(planned, [], () => base.min), base, false),
+        basis: ['engineering'],
+        detail: { min: base.min, gapDays },
+      };
+    }
+    return {
+      ruleId: 'B2',
+      kind: 'hold',
+      reason: 'return_baseline',
+      target: makeTarget(c, w, fill(planned, repsDone, (r) => Math.min(r, base.max)), base, false),
+      basis: ['engineering'],
+      detail: { gapDays },
+    };
   }
+
+  const prev = c.active[c.active.length - 1] as ExerciseSession;
+  const prevEval = evaluateSession(ex, prev, eff, p) as SessionEval;
 
   // B3 失败
   if (cur.failure) {
     if (prevEval.failure) return failureRepeatDraft(c);
-    return withPlateau(c, prior, {
+    return withPlateau(c, {
       ruleId: 'B3',
       kind: 'hold',
       reason: 'failure_first',
@@ -160,8 +182,8 @@ function decide(c: Ctx): Draft {
 
   // B4 加重
   if (cur.achieved) {
-    const consecutive = isConsecutive(c, prior);
-    const rirOk = !input.settings.conservative && allRirAtLeast(cur.workingSets, p.progression.singleHitMinRir);
+    const consecutive = isConsecutive(c);
+    const rirOk = allRirAtLeast(cur.workingSets, p.progression.singleHitMinRir);
     if (consecutive || rirOk) return increaseDraft(c, consecutive);
     return {
       ruleId: 'B5',
@@ -175,7 +197,7 @@ function decide(c: Ctx): Draft {
 
   // B5 推进
   if (cur.hitAll) {
-    return withPlateau(c, prior, {
+    return withPlateau(c, {
       ruleId: 'B5',
       kind: 'hold',
       reason: 'at_max_with_failure',
@@ -184,7 +206,7 @@ function decide(c: Ctx): Draft {
       detail: { max: eff.max },
     });
   }
-  return withPlateau(c, prior, {
+  return withPlateau(c, {
     ruleId: 'B5',
     kind: 'add_reps',
     reason: 'progress_reps',
@@ -192,43 +214,6 @@ function decide(c: Ctx): Draft {
     basis: ['ACSM2009'],
     detail: { max: eff.max },
   });
-}
-
-/**
- * 本次是否已经按回归后的重量练过（App 开始训练时用 adjustForLayoff 减过，或用户自己减过）。
- * 是的话训练后不再重复减。
- */
-function followedLayoff(c: Ctx, prevWorking: number, cut: number): boolean {
-  const ct = c.input.currentTarget;
-  const ref = reduceLoad(c.ex, prevWorking, cut);
-  if (ref === null) return ct?.layoffAdjusted === true;
-  const accepted = ct?.layoffAdjusted === true && isHarder(c.ex, ct.weight, ref) ? ct.weight : ref;
-  return !isHarder(c.ex, c.w, accepted);
-}
-
-function layoffDraft(c: Ctx, cut: number, gapDays: number): Draft {
-  const { ex, w, planned, repsDone, base } = c;
-  const next = reduceLoad(ex, w, cut);
-  const detail = { gapDays, cut };
-  if (next === null) {
-    // 增量为 0 或额外负重已是 0：改为减次数
-    return {
-      ruleId: 'B2',
-      kind: 'reduce',
-      reason: 'layoff',
-      target: makeTarget(c, w, fill(planned, repsDone, (r) => Math.floor(r * (1 - cut))), base, false),
-      basis: ['engineering'],
-      detail,
-    };
-  }
-  return {
-    ruleId: 'B2',
-    kind: 'reduce',
-    reason: 'layoff',
-    target: makeTarget(c, next, fill(planned, repsDone, (r) => Math.min(r, base.max)), base, false),
-    basis: ['engineering'],
-    detail,
-  };
 }
 
 function failureRepeatDraft(c: Ctx): Draft {
@@ -256,18 +241,21 @@ function failureRepeatDraft(c: Ctx): Draft {
   };
 }
 
-/** 此前连续 (N − 1) 次也在同一重量下达标 */
-function isConsecutive(c: Ctx, prior: readonly ExerciseSession[]): boolean {
+/**
+ * 连续达标以较低的重量为基准：此前 (N − 1) 次都达标，且重量都不比这次轻。
+ * 上一次更轻时（用户自己加了重），按较低的重量加一档正好是这次的重量，所以先保持。
+ */
+function isConsecutive(c: Ctx): boolean {
   for (let i = 1; i < c.p.progression.consecutiveHits; i++) {
-    const s = prior[prior.length - i];
+    const s = c.active[c.active.length - i];
     const e = s ? evaluateSession(c.ex, s, c.eff, c.p) : null;
-    if (!e || !e.achieved || !sameWeight(e.workingWeight, c.w)) return false;
+    if (!e || !e.achieved || isHarder(c.ex, c.w, e.workingWeight)) return false;
   }
   return true;
 }
 
 function increaseDraft(c: Ctx, consecutive: boolean): Draft {
-  const { ex, p, w, base, eff, planned, repsDone, input } = c;
+  const { ex, p, w, base, planned, repsDone } = c;
   if (isRepsOnly(ex)) {
     return {
       ruleId: 'B4',
@@ -292,7 +280,7 @@ function increaseDraft(c: Ctx, consecutive: boolean): Draft {
   const reason: PostReason = consecutive ? 'increase_consecutive' : 'increase_rir';
   const basis: readonly CitationKey[] = consecutive ? ['ACSM2009'] : ['ACSM2009', 'Zourdos2016'];
   const pct = canMeasurePct(ex) && w > 0 ? (next - w) / w : null;
-  const cap = increaseCap(ex, input.settings, p);
+  const cap = ex.maxIncreasePct;
   const resetReps = fill(planned, [], () => base.min);
   if (pct !== null && pct <= cap + EPS) {
     return {
@@ -305,7 +293,7 @@ function increaseDraft(c: Ctx, consecutive: boolean): Draft {
     };
   }
 
-  // 一档超过上限，或负重方式无法确认幅度
+  // 一档超过上限，或负重方式无法确认幅度：先把次数上限提高 3 次，做满再换重
   const stepInfo: Record<string, number> = { step: ex.increment, cap };
   if (pct !== null) stepInfo.stepPct = pct;
   if (!c.extended) {
@@ -319,16 +307,6 @@ function increaseDraft(c: Ctx, consecutive: boolean): Draft {
       detail: { ...stepInfo, newMax: ext.max },
     };
   }
-  if (input.settings.conservative) {
-    return {
-      ruleId: 'B4',
-      kind: 'hold',
-      reason: 'step_exceeds_conservative_cap',
-      target: makeTarget(c, w, fill(planned, repsDone, () => eff.max), eff, true),
-      basis: ['product'],
-      detail: stepInfo,
-    };
-  }
   return {
     ruleId: 'B4',
     kind: 'increase',
@@ -339,8 +317,8 @@ function increaseDraft(c: Ctx, consecutive: boolean): Draft {
   };
 }
 
-function withPlateau(c: Ctx, prior: readonly ExerciseSession[], d: Draft): Draft {
-  if (!plateauDetected(c, prior)) return d;
+function withPlateau(c: Ctx, d: Draft): Draft {
+  if (!plateauDetected(c)) return d;
   const reducedSets = Math.max(1, Math.ceil(c.planned / 2));
   return {
     ...d,
@@ -361,14 +339,14 @@ function withPlateau(c: Ctx, prior: readonly ExerciseSession[], d: Draft): Draft
 }
 
 /**
- * 平台期：最近 n+1 次工作重量都没变，且最近 n 次的平均估算 1RM 都没超过同重量下此前的最佳。
+ * 平台期：当前训练段里最近 n+1 次工作重量都没变，且最近 n 次的平均估算 1RM 都没超过同重量下此前的最佳。
  * 用平均值而不是最佳组：后几组还在加次数时不算停滞；要求重量不变：减重后重新爬升不算停滞。
  */
-function plateauDetected(c: Ctx, prior: readonly ExerciseSession[]): boolean {
+function plateauDetected(c: Ctx): boolean {
   const { ex, p, w } = c;
   if (!canMeasurePct(ex)) return false;
   const n = p.plateau.sessions;
-  const all = [...prior, c.input.session];
+  const all = [...c.active, c.input.session];
   if (all.length < n + 1) return false;
   const scored = all.map((s) => {
     const sets = countedSets(s);
@@ -408,9 +386,7 @@ function makeTarget(c: Ctx, weight: number, reps: readonly number[], range: RepR
 function finish(c: Ctx, d: Draft): Suggestion {
   const notes = new Set<NoteCode>(d.notes ?? []);
   if (c.ex.compound === true && d.target.targetRir <= 1) notes.add('use_spotter');
-  const gap = sameWeight(d.target.weight, c.w)
-    ? c.cur.workingSets.reduce((acc, s) => acc + Math.max(0, d.target.repRange.max - s.reps), 0)
-    : null;
+  const gap = sameWeight(d.target.weight, c.w) ? gapFor(c.cur.workingSets, d.target.repRange, c.p) : null;
   const s: Suggestion = {
     ruleId: d.ruleId,
     kind: d.kind,

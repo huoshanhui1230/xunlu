@@ -11,11 +11,11 @@ import {
 import { assistedPullUp, bench, inclineDb, loggedSet, pushUp, target, wheel } from './helpers';
 
 describe('prefillFor', () => {
-  it('第一组用本次目标', () => {
+  it('第一组用本次目标的重量和次数，但不预填 RIR', () => {
     expect(prefillFor({ exercise: bench, target: target(), setNo: 1, previousSets: [], appliedHint: null })).toEqual({
       weight: 80,
       reps: 8,
-      rir: 2,
+      rir: null,
     });
   });
 
@@ -57,6 +57,13 @@ describe('prefillFor', () => {
     expect(
       prefillFor({ exercise: bench, target: target(), setNo: 2, previousSets: previous, appliedHint: null }).rir,
     ).toBeNull();
+  });
+
+  it('第 2 组起沿用上一组填过的 RIR', () => {
+    const previous = [loggedSet({ weight: 80, reps: 8, rir: 3 })];
+    expect(
+      prefillFor({ exercise: bench, target: target(), setNo: 2, previousSets: previous, appliedHint: null }).rir,
+    ).toBe(3);
   });
 
   it('组数超过计划时沿用目标的最后一组次数', () => {

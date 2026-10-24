@@ -1,6 +1,6 @@
 {
   "name": "@xunlu/engine",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "训录建议引擎：组间提示、训练后下次目标、状态与减载提醒。纯 TypeScript，不依赖界面和平台。",
   "type": "module",

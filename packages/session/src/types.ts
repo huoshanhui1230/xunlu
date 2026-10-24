@@ -50,7 +50,8 @@ export interface AppliedHint {
   /** 应用到该动作的第几组 */
   readonly setNo: number;
   readonly weight: number;
-  readonly reps: number;
+  /** 提示给的是一个区间（「6–8 次」）时为 null：只定重量，次数仍沿用上一组 */
+  readonly reps: number | null;
 }
 
 /** 当前挂在界面上的那条组间提示 */
@@ -62,12 +63,16 @@ export interface HintState {
   /** 提示针对的是第几组 */
   readonly setNo: number;
   readonly ruleId: string;
+  /** need_rir | increase | nudge | add_reps | decrease | hold */
   readonly kind: string;
-  /** 提示的下一组重量 */
+  /** 下一组重量；nudge 和 need_rir 不改重量，等于本组重量 */
   readonly weight: number;
-  /** 提示的下一组次数下限，点「应用」后用它预填 */
-  readonly reps: number;
-  /** 用户点过「应用」没有 */
+  /** 下一组次数下限，点「应用」后用它预填；nudge 和 need_rir 没有 */
+  readonly reps: number | null;
+  /** 给出这条提示的那一组的重量和次数，用来回头判断用户有没有照做 */
+  readonly fromWeight: number;
+  readonly fromReps: number;
+  /** 用户点过「应用」没有；只有 increase 能应用 */
   readonly applied: boolean;
 }
 
@@ -78,11 +83,6 @@ export interface ActiveExercise {
   readonly position: number;
   /** 本次目标：开始训练时由 adjustForLayoff 处理过 */
   readonly target: Target;
-  /**
-   * 出过加重提示的那些组的 id。引擎的「每个动作每次训练最多提示一次加重」看它的长度；
-   * 存成 id 而不是计数，是为了撤销某一组时能把对应的那次提示一并退掉。
-   */
-  readonly increaseHintSetIds: readonly string[];
   /** 当前挂着的提示；没有为 null */
   readonly hint: HintState | null;
 }

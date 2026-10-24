@@ -97,6 +97,14 @@ export default {
     cancel: '取消',
   },
 
+  /** 很久没练：引擎给出减重建议，由用户选减重还是按原重量重新测试 */
+  layoff: {
+    title: '有 {count} 个动作很久没练了',
+    body: '距上次 {days} 天。建议先减重重新爬升，也可以按原重量试一次，看看还剩多少。',
+    reduce: '按建议减重',
+    retest: '按原重量',
+  },
+
   safety: {
     warmupTitle: '热身完成后再开始记录',
     warmupBody: '热身组不记录。训练中出现疼痛或不适，请立即停止该动作。',
@@ -134,9 +142,11 @@ export default {
     columnWeight: '重量 / {unit}',
     columnReps: '次数',
     columnRir: '还能再做',
+    /** 滚轮上「还没填」的那一行 */
+    rirEmpty: '—',
     /** 含杆总重 · 当前还能再做 2 次 */
     footnote: '{loadType} · 当前还能再做 {rir} 次',
-    footnoteNoRir: '{loadType} · 还能再做没填',
+    footnoteNoRir: '{loadType} · 还能再做没填，填一次之后的组会沿用',
     addNote: '添加备注',
     prefilled: '数值已预填，可滑动修改',
     confirm: '确认',
@@ -157,9 +167,23 @@ export default {
    * {reps} 传进来的是排好版的「6–8 次」或「6 次」。
    */
   hint: {
+    A0: {
+      title: '这组还能再做几次？',
+      sub: '每个动作第 1 组需要你填一次，之后的组会沿用上一组的值。填好后给出下一组建议。',
+      action: '补填',
+    },
     A1: {
       title: '余力充足，下一组试试 {weight} × {reps}',
       sub: '这组能完成 {capacity} 次，到了加重门槛 {threshold} 次。',
+    },
+    /** 余力够了但一档超上限、算不出幅度或根本不加重：只提醒方向，不给数值，也没有「应用」 */
+    nudge: {
+      titleBoth: '余力充足，下一组可以加重或多做几次',
+      titleReps: '余力充足，下一组可以多做几次',
+      step_exceeds_cap: '加一档超过加重上限，不给具体重量：按手感加重，或保持重量多做几次。',
+      cap_unverifiable: '这个动作算不出加重幅度，不给具体重量：按手感加重，或保持重量多做几次。',
+      reps_only: '这个动作不加重，下一组多做几次。',
+      assistance_done: '已经不需要助力了，可以改记为自重动作，下一组多做几次。',
     },
     A2: {
       title: '重量不变，下一组争取 {reps}',

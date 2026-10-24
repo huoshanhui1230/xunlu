@@ -6,6 +6,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  daysBetween,
   evaluateStatus,
   suggestNextSet,
   suggestNextTarget,
@@ -15,11 +16,10 @@ import {
   type LoadType,
   type PostInput,
   type SetRecord,
-  type Settings,
   type Suggestion,
   type Target,
 } from '../src';
-import { bench, inclineDb, lateralRaise, normal, squat } from './helpers';
+import { bench, inclineDb, lateralRaise, squat } from './helpers';
 
 const LOAD_TYPES: LoadType[] = ['total', 'perSide', 'bodyweightPlus', 'assisted'];
 
@@ -50,14 +50,13 @@ const rirArb = fc.option(fc.integer({ min: 0, max: 5 }), { nil: null });
 const harder = (ex: ExerciseConfig, a: number, b: number): boolean =>
   ex.loadType === 'assisted' ? a < b - 0.0049 : a > b + 0.0049;
 const near = (a: number, b: number): boolean => Math.abs(a - b) < 0.005;
+const measurable = (ex: ExerciseConfig): boolean => ex.loadType === 'total' || ex.loadType === 'perSide';
 
-function working(ex: ExerciseConfig, sets: readonly SetRecord[]) {
-  const counted = sets.filter((s) => !s.tag);
+/** 达标：最后两个工作组做到上限或"力竭且到下限"；其余工作组到上限且不力竭；其他重量的组只有排在最后两组才能力竭 */
+function judge(ex: ExerciseConfig, s: ExerciseSession, min: number, max: number) {
+  const counted = s.sets.filter((x) => !x.tag);
   const counts = new Map<number, number>();
-  for (const s of counted) {
-    const k = Math.round(s.weight * 100);
-    counts.set(k, (counts.get(k) ?? 0) + 1);
-  }
+  for (const x of counted) counts.set(Math.round(x.weight * 100), (counts.get(Math.round(x.weight * 100)) ?? 0) + 1);
   let w = Number.NaN;
   let best = 0;
   for (const [k, c] of counts) {
@@ -66,12 +65,34 @@ function working(ex: ExerciseConfig, sets: readonly SetRecord[]) {
       best = c;
     }
   }
-  return { w, sets: counted.filter((s) => near(s.weight, w)), counted };
+  const ws = counted.filter((x) => near(x.weight, w));
+  const lastW = ws.length - 2;
+  const lastC = counted.length - 2;
+  const metAll = ws.every((x, i) =>
+    i >= lastW ? x.reps >= max || (x.rir === 0 && x.reps >= min) : x.reps >= max && x.rir !== 0,
+  );
+  const badFailure = counted.some((x, i) => {
+    if (x.rir !== 0) return false;
+    const wi = ws.indexOf(x);
+    return !((wi >= 0 && wi >= lastW) || i >= lastC);
+  });
+  return { w, sets: ws, ok: metAll && !badFailure, badFailure };
 }
 
-function achieved(ex: ExerciseConfig, s: ExerciseSession, max: number) {
-  const r = working(ex, s.sets);
-  return { w: r.w, ok: r.sets.every((x) => x.reps >= max) && r.counted.every((x) => x.rir !== 0), sets: r.sets };
+/** 当前训练段：两次训练间隔超过 14 天就从后一次重新算 */
+function window(history: readonly ExerciseSession[], date: string) {
+  const trained = history
+    .filter((h) => h.date <= date && h.sets.some((x) => !x.tag))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const prior = trained.filter((h) => !h.deload);
+  const last = trained[trained.length - 1];
+  if (!last || daysBetween(last.date, date) > 14) return { prior, active: [] as ExerciseSession[] };
+  let start = last.date;
+  for (let i = trained.length - 2; i >= 0; i--) {
+    if (daysBetween(trained[i]!.date, trained[i + 1]!.date) > 14) break;
+    start = trained[i]!.date;
+  }
+  return { prior, active: prior.filter((h) => h.date >= start) };
 }
 
 function checkPost(input: PostInput, s: Suggestion): void {
@@ -90,9 +111,17 @@ function checkPost(input: PostInput, s: Suggestion): void {
   }
   expect(input.inDeload).not.toBe(true);
 
-  const extended = input.currentTarget?.extended === true;
-  const max = ex.repRange.max + (extended ? 3 : 0);
-  const cur = achieved(ex, input.session, max);
+  const { min, max: baseMax } = ex.repRange;
+  const first = judge(ex, input.session, min, baseMax);
+  const ct = input.currentTarget;
+  const extended = ct !== undefined && ct.extended && near(ct.weight, first.w);
+  const max = baseMax + (extended ? 3 : 0);
+  const cur = judge(ex, input.session, min, max);
+  const win = window(input.history, input.session.date);
+
+  // 第一次、回归后的第一次：只保持
+  if (win.active.length === 0) expect(near(t.weight, cur.w)).toBe(true);
+
   const isIncrease = harder(ex, t.weight, cur.w);
   expect(isIncrease).toBe(s.kind === 'increase');
   if (!isIncrease) return;
@@ -101,28 +130,22 @@ function checkPost(input: PostInput, s: Suggestion): void {
   expect(ex.increment).toBeGreaterThan(0);
   const step = ex.loadType === 'assisted' ? cur.w - t.weight : t.weight - cur.w;
   expect(step).toBeCloseTo(ex.loadType === 'assisted' ? Math.min(ex.increment, cur.w) : ex.increment, 6);
-  // 达标
+  // 达标，且没有不允许的力竭组
   expect(cur.ok).toBe(true);
-  // 时机：连续 2 次达标，或一次达标且每组 RIR ≥ 2（保守模式只认前者）
-  const prior = input.history.filter((h) => !h.deload && h.sets.some((x) => !x.tag));
-  const prev = prior[prior.length - 1];
-  const prevOk = prev ? achieved(ex, prev, max) : null;
-  const consecutive = prevOk !== null && prevOk.ok && near(prevOk.w, cur.w);
-  const rirOk = !input.settings.conservative && cur.sets.every((x) => x.rir !== null && x.rir !== undefined && x.rir >= 2);
+  expect(cur.badFailure).toBe(false);
+  // 时机：上一次在同样或更重的重量下达标，或本次每组 RIR ≥ 2
+  const prev = win.active[win.active.length - 1];
+  const prevJudge = prev ? judge(ex, prev, min, max) : null;
+  const consecutive = prevJudge !== null && prevJudge.ok && !harder(ex, cur.w, prevJudge.w);
+  const rirOk = cur.sets.every((x) => x.rir !== null && x.rir !== undefined && x.rir >= 2);
   expect(consecutive || rirOk).toBe(true);
-  // 幅度：不超过上限；只有做满"上限 +3"后才允许超过；保守模式一律 ≤ 5%
-  const measurable = (ex.loadType === 'total' || ex.loadType === 'perSide') && cur.w > 0;
-  const pct = measurable ? (t.weight - cur.w) / cur.w : null;
-  if (input.settings.conservative) {
-    expect(pct).not.toBeNull();
-    expect(pct as number).toBeLessThanOrEqual(0.05 + 1e-9);
-  }
+  // 幅度：不超过上限；只有做满"上限 +3"后才允许超过
   if (!extended) {
-    expect(pct).not.toBeNull();
-    expect(pct as number).toBeLessThanOrEqual(ex.maxIncreasePct + 1e-9);
+    expect(measurable(ex) && cur.w > 0).toBe(true);
+    expect((t.weight - cur.w) / cur.w).toBeLessThanOrEqual(ex.maxIncreasePct + 1e-9);
   }
   // 一次只改一个变量
-  for (const r of t.reps) expect(r).toBe(ex.repRange.min);
+  for (const r of t.reps) expect(r).toBe(min);
   const planned = Math.min(6, Math.max(1, Math.round(ex.plannedSets ?? cur.sets.length)));
   expect(t.sets).toBeLessThanOrEqual(planned);
 }
@@ -132,7 +155,7 @@ describe('护栏：训练后建议', () => {
   const stepArb = (deltaMin: number, deltaMax: number, rir: fc.Arbitrary<number | null>) =>
     fc.record({
       gap: fc.oneof({ arbitrary: fc.integer({ min: 1, max: 7 }), weight: 6 }, { arbitrary: fc.integer({ min: 8, max: 35 }), weight: 1 }),
-      deviate: fc.constantFrom(0, 0, 0, 0, 1, -1),
+      deviate: fc.constantFrom(0, 0, 0, 0, 1, 2, -1),
       deltas: fc.array(fc.integer({ min: deltaMin, max: deltaMax }), { minLength: 6, maxLength: 6 }),
       rirs: fc.array(rir, { minLength: 6, maxLength: 6 }),
       backoff: fc.boolean(),
@@ -142,19 +165,20 @@ describe('护栏：训练后建议', () => {
   const anyLifter = stepArb(-4, 4, rirArb);
   /** 进步很快的人：经常做满上限、余力充足，用来反复触发加重和"上限 +3" */
   const strongLifter = stepArb(0, 4, fc.option(fc.integer({ min: 1, max: 4 }), { nil: null, freq: 10 }));
+  /** 最后两组常练到力竭的人 */
+  const grinder = stepArb(-2, 3, fc.constantFrom(0, 0, 1, 2, null));
 
   it.each([
     ['任意表现', anyLifter],
     ['进步很快', strongLifter],
-  ])('按建议连续练 25 次（%s，含偏离、递减组、减载、长时间没练），任何一步都不越过护栏', (_label, lifter) => {
+    ['常练到力竭', grinder],
+  ])('按建议连续练 25 次（%s，含自己换重量、递减组、减载、长时间没练），任何一步都不越过护栏', (_label, lifter) => {
     fc.assert(
       fc.property(
         exerciseArb,
-        fc.boolean(),
         fc.constantFrom(0, 2.5, 5, 10, 20, 40, 60, 80, 100),
         fc.array(lifter, { minLength: 1, maxLength: 25 }),
-        (ex, conservativeMode, startWeight, steps) => {
-          const settings: Settings = { conservative: conservativeMode };
+        (ex, startWeight, steps) => {
           let history: ExerciseSession[] = [];
           let target: Target | undefined;
           let date = '2026-01-01';
@@ -184,7 +208,6 @@ describe('护栏：训练后建议', () => {
               exercise: ex,
               history,
               session,
-              settings,
               ...(target ? { currentTarget: target } : {}),
               ...(inDeload ? { inDeload: true, preDeloadTarget: target } : {}),
             };
@@ -197,7 +220,7 @@ describe('护栏：训练后建议', () => {
           }
         },
       ),
-      { numRuns: 400 },
+      { numRuns: 300 },
     );
   });
 
@@ -210,7 +233,7 @@ describe('护栏：训练后建议', () => {
       mixed: fc.boolean(),
     });
     fc.assert(
-      fc.property(exerciseArb, fc.boolean(), fc.boolean(), fc.array(rawArb, { minLength: 1, maxLength: 7 }), (ex, cons, ext, raws) => {
+      fc.property(exerciseArb, fc.boolean(), fc.array(rawArb, { minLength: 1, maxLength: 7 }), (ex, ext, raws) => {
         let date = '2026-03-01';
         const sessions: ExerciseSession[] = raws.map((r) => {
           date = addDays(date, r.gap);
@@ -239,7 +262,6 @@ describe('护栏：训练后建议', () => {
           exercise: ex,
           history: sessions.slice(0, -1),
           session,
-          settings: { conservative: cons },
           ...(currentTarget ? { currentTarget } : {}),
         };
         checkPost(input, suggestNextTarget(input) as Suggestion);
@@ -256,44 +278,67 @@ describe('护栏：组间提示', () => {
     rir: fc.option(fc.integer({ min: 0, max: 10 }), { nil: null }),
   });
 
-  it('只在全部条件满足时才加一档', () => {
+  it('只在全部条件满足时才提示加重，一档超过上限时不给数值', () => {
     fc.assert(
       fc.property(
         exerciseArb,
         setArb,
         fc.boolean(),
         fc.boolean(),
-        fc.integer({ min: 0, max: 2 }),
         fc.array(setArb, { maxLength: 4 }),
-        (ex, set, cons, deload, used, earlier) => {
-          const input: IntraInput = {
-            exercise: ex,
-            set,
-            settings: { conservative: cons },
-            inDeload: deload,
-            increaseHintsUsed: used,
-            earlierSets: earlier,
-          };
+        (ex, set, deload, rirEnabled, earlier) => {
+          const input: IntraInput = { exercise: ex, set, inDeload: deload, rirEnabled, earlierSets: earlier };
           const h = suggestNextSet(input);
           expect(h.increaseBlockedBy).not.toBe('guardrail');
+          const { min, max } = ex.repRange;
+
+          // RIR：本组没填沿用上一组；第 1 组没有可沿用的值就提示填写
+          let rir: number | null = set.rir;
+          if (rir === null && rirEnabled) rir = [...earlier].reverse().find((s) => s.rir !== null)?.rir ?? null;
+          expect(h.kind === 'need_rir').toBe(rir === null && rirEnabled);
+          if (h.kind === 'need_rir') {
+            expect(h.weight).toBe(set.weight);
+            return;
+          }
+
           const inc = harder(ex, h.weight, set.weight);
           expect(inc).toBe(h.kind === 'increase');
-          if (inc) {
-            expect(cons).toBe(false);
+          if (h.kind === 'increase' || h.kind === 'nudge') {
             expect(deload).toBe(false);
-            expect(used).toBe(0);
-            expect(set.reps + (set.rir ?? 0)).toBeGreaterThanOrEqual(Math.ceil(ex.repRange.max * 1.5 - 1e-9));
-            const failureSets = [...earlier, set].filter((s) => near(s.weight, set.weight) && s.rir === 0).length;
-            expect(failureSets).toBeLessThan(2);
-            expect(ex.loadType === 'total' || ex.loadType === 'perSide').toBe(true);
+            expect(set.reps + (rir ?? 0)).toBeGreaterThanOrEqual(Math.ceil(max * 1.5 - 1e-9));
+            const all = [...earlier, set];
+            let hardest = all[0]!.weight;
+            let increases = 0;
+            for (const s of all.slice(1)) {
+              if (harder(ex, s.weight, hardest)) {
+                increases += 1;
+                hardest = s.weight;
+              }
+            }
+            expect(increases).toBe(0);
+            const atMin = all.filter((s) => near(s.weight, set.weight) && s.rir === 0 && s.reps <= min).length;
+            expect(atMin).toBeLessThan(2);
+          }
+          if (h.kind === 'increase') {
+            expect(measurable(ex)).toBe(true);
             expect(set.weight).toBeGreaterThan(0);
             expect(h.weight - set.weight).toBeCloseTo(ex.increment, 6);
             expect((h.weight - set.weight) / set.weight).toBeLessThanOrEqual(ex.maxIncreasePct + 1e-9);
-            expect(h.reps).toEqual({ low: ex.repRange.min, high: ex.repRange.min });
+            expect(h.reps).toEqual({ low: min, high: min });
+          }
+          if (h.kind === 'nudge') {
+            expect(h.weight).toBe(set.weight);
+            expect(h.reps).toBeUndefined();
+            const stepOk =
+              measurable(ex) && ex.increment > 0 && set.weight > 0 && ex.increment / set.weight <= ex.maxIncreasePct + 1e-9;
+            expect(stepOk).toBe(false);
           }
           if (h.kind === 'decrease') expect(harder(ex, set.weight, h.weight)).toBe(true);
-          expect(h.reps.low).toBeGreaterThanOrEqual(1);
-          expect(h.reps.high).toBeGreaterThanOrEqual(h.reps.low);
+          if (deload) expect(['decrease', 'hold']).toContain(h.kind);
+          if (h.reps) {
+            expect(h.reps.low).toBeGreaterThanOrEqual(1);
+            expect(h.reps.high).toBeGreaterThanOrEqual(h.reps.low);
+          }
         },
       ),
       { numRuns: 2000 },
@@ -329,7 +374,6 @@ describe('护栏：状态等级', () => {
           const r = evaluateStatus({
             today,
             exercises,
-            settings: normal,
             firstUseDate: '2026-08-20',
             ...(deloadNow ? { activeDeload: { start: '2026-10-15', end: '2026-10-21' } } : {}),
           });

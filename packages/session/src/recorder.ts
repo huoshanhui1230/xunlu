@@ -5,9 +5,10 @@
  * 存储层只管照着事件写表，所以这一整套逻辑可以脱离 uni 和 SQLite 单独测。
  *
  * 一组记录的生命周期：
- *   beginSet   点「完成本组」，面板打开，doneAt 记下来并立刻落库
- *   saveSet    点确认 / 关闭面板 / 再点一次完成本组，都按当前值保存，不丢组
- *   undoLastSet 保存后 5 秒内可撤，连带退掉这一组引出的加重提示
+ *   beginSet    点「完成本组」，面板打开，doneAt 记下来并立刻落库
+ *   saveSet     点确认 / 关闭面板 / 再点一次完成本组，都按当前值保存，不丢组
+ *   updateSet   补填 RIR 或改已保存的组：同一条记录改值，不新增一组
+ *   undoLastSet 保存后 5 秒内可撤
  */
 import { round2, type ExerciseConfig, type SetTag } from '@xunlu/engine';
 import { prefillFor } from './prefill';
@@ -55,15 +56,15 @@ export function nextSetNo(session: ActiveSession, exerciseId: string): number {
   return setsOf(session, exerciseId).length + 1;
 }
 
-/** 引擎要的「本次已出过几次加重提示」 */
-export function increaseHintsUsed(exercise: ActiveExercise): number {
-  return exercise.increaseHintSetIds.length;
+/** 只提醒方向和提示补填这两种不给数值，所以也没法「应用」 */
+function canApply(hint: HintState | null): hint is HintState {
+  return hint !== null && hint.kind !== 'nudge' && hint.kind !== 'need_rir';
 }
 
-/** 预填要用的「已应用的提示」；没点过「应用」就是 null */
+/** 预填要用的「已应用的提示」 */
 export function appliedHintOf(exercise: ActiveExercise): AppliedHint | null {
   const hint = exercise.hint;
-  if (hint === null || !hint.applied) return null;
+  if (!canApply(hint) || !hint.applied) return null;
   return { setNo: hint.setNo, weight: hint.weight, reps: hint.reps };
 }
 
@@ -208,11 +209,45 @@ export function saveSet(session: ActiveSession, input: SaveSetInput): Transition
   return { session: next, events };
 }
 
+export interface UpdateSetInput {
+  readonly setId: string;
+  readonly values: WheelValues;
+  readonly note?: string | null;
+}
+
 /**
- * 用户拿这条提示做了什么。只看重量 —— 「应用」改的就是下一组的预填重量。
- * 照着提示的重量练了就算采纳，哪怕没点过「应用」。
+ * 改一条已经保存的记录（补填 RIR，或以后的「修改已记录的组」）。
+ * 同一条记录改值，不新增一组；doneAt 和 logMs 是当时记这一组的用时，保持不动。
+ */
+export function updateSet(session: ActiveSession, input: UpdateSetInput): Transition {
+  const target = session.sets.find((s) => s.id === input.setId);
+  if (target === undefined) return unchanged(session);
+
+  const updated: LoggedSet = {
+    ...target,
+    weight: round2(input.values.weight),
+    reps: input.values.reps,
+    rir: input.values.rir,
+    note: input.note === undefined ? target.note : input.note,
+  };
+  return {
+    session: { ...session, sets: session.sets.map((s) => (s.id === updated.id ? updated : s)) },
+    events: [{ kind: 'set_saved', set: updated }],
+  };
+}
+
+/**
+ * 用户拿这条提示做了什么。
+ *   increase / decrease  照着提示的重量练了就算采纳，哪怕没点过「应用」
+ *   nudge                只提醒方向，所以看有没有真的加重或多做
+ *   need_rir             看这次有没有把 RIR 填上
  */
 export function decideHint(hint: HintState, saved: WheelValues): SuggestionDecision {
+  if (hint.kind === 'need_rir') return saved.rir === null ? 'ignored' : 'applied';
+  if (hint.kind === 'nudge') {
+    const harder = !sameWeight(saved.weight, hint.fromWeight) || saved.reps > hint.fromReps;
+    return harder ? 'applied' : 'ignored';
+  }
   if (sameWeight(saved.weight, hint.weight)) return 'applied';
   return hint.applied ? 'modified' : 'ignored';
 }
@@ -221,10 +256,7 @@ export function decideHint(hint: HintState, saved: WheelValues): SuggestionDecis
 // 撤销
 // ---------------------------------------------------------------------------
 
-/**
- * 撤回最后保存的一组。超过 5 秒窗口、或者面板又开着了就不撤。
- * 这一组引出过加重提示的话，一并把那次提示退掉，不然引擎会以为本次已经提示过了。
- */
+/** 撤回最后保存的一组。超过 5 秒窗口、或者面板又开着了就不撤 */
 export function undoLastSet(session: ActiveSession, now: number): Transition {
   const last = session.sets.length > 0 ? session.sets[session.sets.length - 1] : undefined;
   if (last === undefined || session.pending !== null) return unchanged(session);
@@ -233,15 +265,12 @@ export function undoLastSet(session: ActiveSession, now: number): Transition {
   const events: StoreEvent[] = [{ kind: 'set_undone', setId: last.id }];
   let next: ActiveSession = { ...session, sets: session.sets.slice(0, -1) };
 
+  // 挂着的提示要么是这一组引出来的，要么是给这一组的，两种都该收起来
   const active = findExercise(session, last.exerciseId);
-  if (active !== undefined) {
-    const increaseHintSetIds = active.increaseHintSetIds.filter((id) => id !== last.id);
-    // 挂着的提示要么是这一组引出来的，要么是给这一组的，两种都该收起来
-    const hint = active.hint !== null && (active.hint.fromSetNo === last.setNo || active.hint.setNo === last.setNo)
-      ? null
-      : active.hint;
-    if (increaseHintSetIds.length !== active.increaseHintSetIds.length || hint !== active.hint) {
-      const rolled: ActiveExercise = { ...active, increaseHintSetIds, hint };
+  if (active !== undefined && active.hint !== null) {
+    const stale = active.hint.fromSetNo === last.setNo || active.hint.setNo === last.setNo;
+    if (stale) {
+      const rolled: ActiveExercise = { ...active, hint: null };
       next = replaceExercise(next, rolled);
       events.push({ kind: 'exercise_state_changed', exercise: rolled });
     }
@@ -262,7 +291,11 @@ export interface RecordHintInput {
   readonly ruleId: string;
   readonly kind: string;
   readonly weight: number;
-  readonly reps: number;
+  /**
+   * 应用这条提示时要预填的次数。提示给的是区间（「6–8 次」）时传 null：
+   * 只定重量，次数仍沿用上一组。nudge 和 need_rir 也传 null。
+   */
+  readonly reps: number | null;
   readonly ruleVersion: string;
   readonly blockedBy: string | null;
   /** 完整的 SetHint，序列化后原样存下来 */
@@ -270,10 +303,7 @@ export interface RecordHintInput {
   readonly createdAt: number;
 }
 
-/**
- * 记下一条刚显示出来的组间提示。
- * 加重提示显示即计数（用户忽略了也算），这是 docs/engine-spec.md 里说好的数法。
- */
+/** 记下一条刚显示出来的组间提示 */
 export function recordHintShown(session: ActiveSession, input: RecordHintInput): Transition {
   const active = findExercise(session, input.exerciseId);
   if (active === undefined) return unchanged(session);
@@ -286,14 +316,11 @@ export function recordHintShown(session: ActiveSession, input: RecordHintInput):
     kind: input.kind,
     weight: round2(input.weight),
     reps: input.reps,
+    fromWeight: input.fromSet.weight,
+    fromReps: input.fromSet.reps,
     applied: false,
   };
-  const counted = input.kind === 'increase' && !active.increaseHintSetIds.includes(input.fromSet.id);
-  const updated: ActiveExercise = {
-    ...active,
-    hint,
-    increaseHintSetIds: counted ? [...active.increaseHintSetIds, input.fromSet.id] : active.increaseHintSetIds,
-  };
+  const updated: ActiveExercise = { ...active, hint };
 
   return {
     session: replaceExercise(session, updated),
@@ -323,15 +350,27 @@ export function recordHintShown(session: ActiveSession, input: RecordHintInput):
 /** 点「应用」：只改下一组的预填，已保存的组一个都不动 */
 export function applyHint(session: ActiveSession, exerciseId: string, decidedAt: number): Transition {
   const active = findExercise(session, exerciseId);
-  if (active === undefined || active.hint === null || active.hint.applied) return unchanged(session);
+  const hint = active?.hint ?? null;
+  if (active === undefined || !canApply(hint) || hint.applied) return unchanged(session);
 
-  const updated: ActiveExercise = { ...active, hint: { ...active.hint, applied: true } };
+  const updated: ActiveExercise = { ...active, hint: { ...hint, applied: true } };
   return {
     session: replaceExercise(session, updated),
     events: [
-      { kind: 'suggestion_decided', suggestionId: active.hint.suggestionId, decision: 'applied', decidedAt },
+      { kind: 'suggestion_decided', suggestionId: hint.suggestionId, decision: 'applied', decidedAt },
       { kind: 'exercise_state_changed', exercise: updated },
     ],
+  };
+}
+
+/** 补填完 RIR 之后把卡片收起来 */
+export function clearHint(session: ActiveSession, exerciseId: string): Transition {
+  const active = findExercise(session, exerciseId);
+  if (active === undefined || active.hint === null) return unchanged(session);
+  const updated: ActiveExercise = { ...active, hint: null };
+  return {
+    session: replaceExercise(session, updated),
+    events: [{ kind: 'exercise_state_changed', exercise: updated }],
   };
 }
 

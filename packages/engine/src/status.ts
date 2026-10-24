@@ -7,10 +7,11 @@
  *   S3 多个动作停滞：一周内 3 个及以上动作命中失败（B3）或平台期（B6）
  *   S4 连续训练时间：距上次减载（或开始训练）满 5 周
  * 0 个信号 → 正常；1 个 → 关注；2 个及以上 → 建议减载。
+ * 建议减载时 App 先告知并询问用户；用户选择进入后才调用 planDeload，之后传入 activeDeload。
  * 时间窗从"当前训练段"算起：连续 7 天以上没练、上次减载结束、开始使用，三者取最晚。
  */
 import { DEFAULT_PARAMS, type EngineParams } from './params';
-import type { ExerciseConfig, ExerciseSession, Settings, StatusLevel, StatusResult, StatusSignal } from './types';
+import type { ExerciseConfig, ExerciseSession, StatusLevel, StatusResult, StatusSignal } from './types';
 import { bestE1rmOf, countedSets } from './sets';
 import { canMeasurePct } from './load';
 import { addDays, daysBetween, EPS, laterDate, mean, sameWeight } from './math';
@@ -26,12 +27,11 @@ export interface StatusExercise {
 export interface StatusInput {
   readonly today: string;
   readonly exercises: readonly StatusExercise[];
-  readonly settings: Settings;
   /** 开始使用的日期 */
   readonly firstUseDate: string;
   /** 上次减载的最后一天 */
   readonly lastDeloadEnd?: string | null;
-  /** 正在进行的减载周 */
+  /** 用户已选择进入的减载周 */
   readonly activeDeload?: { readonly start: string; readonly end: string } | null;
   /** 用户选了"推迟一周"：在这天之前，建议减载降为关注 */
   readonly snoozedUntil?: string | null;
@@ -52,13 +52,12 @@ export function evaluateStatus(input: StatusInput): StatusResult {
   const s2: string[] = [];
   const s3: string[] = [];
   for (const item of input.exercises) {
-    const usable = sortByDate(item.sessions).filter(
-      (s) => s.deload !== true && s.date <= today && countedSets(s).length > 0,
-    );
+    const trained = sortByDate(item.sessions).filter((s) => s.date <= today && countedSets(s).length > 0);
+    const usable = trained.filter((s) => s.deload !== true);
     const inWindow = usable.filter((s) => s.date >= windowStart);
     if (performanceDrop(item.exercise, inWindow, p)) s1.push(item.exercise.id);
     if (harderAtSameLoad(inWindow, p)) s2.push(item.exercise.id);
-    if (recentFailureOrPlateau(item.exercise, usable, input, p)) s3.push(item.exercise.id);
+    if (recentFailureOrPlateau(item.exercise, trained, input.today, p)) s3.push(item.exercise.id);
   }
 
   const signals: StatusSignal[] = [];
@@ -137,15 +136,15 @@ function harderAtSameLoad(sessions: readonly ExerciseSession[], p: EngineParams)
 /** S3：最近 7 天内有一次训练命中失败或平台期 */
 function recentFailureOrPlateau(
   ex: ExerciseConfig,
-  usable: readonly ExerciseSession[],
-  input: StatusInput,
+  trained: readonly ExerciseSession[],
+  today: string,
   p: EngineParams,
 ): boolean {
-  const from = addDays(input.today, -(p.status.s3WindowDays - 1));
-  for (let i = 0; i < usable.length; i++) {
-    const s = usable[i] as ExerciseSession;
-    if (s.date < from) continue;
-    const r = suggestNextTarget({ exercise: ex, history: usable.slice(0, i), session: s, settings: input.settings, params: p });
+  const from = addDays(today, -(p.status.s3WindowDays - 1));
+  for (let i = 0; i < trained.length; i++) {
+    const s = trained[i] as ExerciseSession;
+    if (s.deload === true || s.date < from) continue;
+    const r = suggestNextTarget({ exercise: ex, history: trained.slice(0, i), session: s, params: p });
     if (
       r &&
       (r.ruleId === 'B6' || r.reason === 'failure_first' || r.reason === 'failure_repeat' || r.reason === 'cannot_reduce')

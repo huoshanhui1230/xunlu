@@ -116,8 +116,6 @@ export interface SessionExerciseDbRow {
   readonly extended: number;
   readonly target_rir: number;
   readonly layoff_adjusted: number;
-  /** 出过加重提示的组 id，JSON 数组；撤销某一组时要把对应那次退掉 */
-  readonly increase_hint_set_ids: string;
   /** 当前挂着的提示，JSON；没有为 NULL */
   readonly hint: string | null;
 }
@@ -136,7 +134,6 @@ export function sessionExerciseToRow(sessionId: string, exercise: ActiveExercise
     extended: t.extended ? 1 : 0,
     target_rir: t.targetRir,
     layoff_adjusted: t.layoffAdjusted === true ? 1 : 0,
-    increase_hint_set_ids: JSON.stringify(exercise.increaseHintSetIds),
     hint: exercise.hint === null ? null : JSON.stringify(exercise.hint),
   };
 }
@@ -155,7 +152,6 @@ export function sessionExerciseFromRow(row: SessionExerciseDbRow): ActiveExercis
     exerciseId: row.exercise_id,
     position: row.position,
     target,
-    increaseHintSetIds: parseJson<string[]>(row.increase_hint_set_ids, []),
     hint: parseJson<HintState | null>(row.hint, null),
   };
 }

@@ -12,13 +12,13 @@ import { setVolume, type SetHint } from '@xunlu/engine';
 import {
   applyHint,
   beginSet,
+  clearHint,
   elapsedSince,
   endSession,
   formatElapsed,
   hintForSet,
   inRestRange,
   nextSetNo,
-  prefillFor,
   recordHintShown,
   repOptions,
   restoreSession,
@@ -28,6 +28,7 @@ import {
   switchExercise,
   undoLastSet,
   undoRemainingSeconds,
+  updateSet,
   weightOptions,
   type ActiveSession,
   type LoggedSet,
@@ -69,6 +70,11 @@ const wheelWeights = ref<number[]>([]);
 const wheelReps = ref<number[]>(repOptions());
 const wheelRirs = ref<number[]>(rirOptions());
 const pendingNote = ref<string | null>(null);
+/** 不为 null 时面板是在改一条已保存的记录（补填 RIR），确认后不新增一组 */
+const editingSetId = ref<string | null>(null);
+
+/** 设置里的「RIR 显示」。开关还没做，先固定开着 */
+const rirEnabled = ref(true);
 
 /** 下一组提示：持久化的只有决定，卡片内容每次由引擎现算 */
 const hintView = ref<SetHint | null>(null);
@@ -132,7 +138,7 @@ const hintText = computed(() => {
   return hintCopy({
     hint: hintView.value,
     unit: unit.value,
-    rir: hintFromSet.value?.rir ?? null,
+    fromReps: hintFromSet.value?.reps ?? 0,
     plannedSets: meta.value.startTarget.sets,
     doneSets: doneSets.value.length,
     applied: hintApplied.value,
@@ -211,7 +217,7 @@ function rebuildHint(): void {
     session: session.value,
     exercise: meta.value.config,
     set: source,
-    settings: { conservative: false },
+    rirEnabled: rirEnabled.value,
   });
   hintFromSet.value = source;
 }
@@ -224,6 +230,12 @@ function openSheetWith(values: WheelValues): void {
   wheelReps.value = repOptions();
   wheelRirs.value = rirOptions();
   sheetOpen.value = true;
+}
+
+/** 补填：把面板开在一条已经保存的记录上 */
+function openSheetForSet(set: LoggedSet): void {
+  editingSetId.value = set.id;
+  openSheetWith({ weight: set.weight, reps: set.reps, rir: set.rir });
 }
 
 /** 点「完成本组」：面板没开就开，开着就按当前值保存，不丢组 */
@@ -246,7 +258,11 @@ async function onDoneSet(): Promise<void> {
 
 async function save(closedBy: SaveTrigger): Promise<void> {
   if (session.value === null || store === null || meta.value === undefined) return;
-  const config = meta.value.config;
+  if (editingSetId.value !== null) {
+    await finishEdit();
+    return;
+  }
+
   const { session: next, events } = saveSet(session.value, {
     id: createId('set'),
     values: wheelValues.value,
@@ -267,26 +283,52 @@ async function save(closedBy: SaveTrigger): Promise<void> {
   if (saved === undefined) return;
   savedFlash.value = saved;
   logTiming(saved);
+  await refreshHint(next, saved);
+}
 
-  // 下一组提示：内容全部由引擎决定
-  const hint = hintForSet({ session: next, exercise: config, set: saved, settings: { conservative: false } });
-  const shown = recordHintShown(next, {
+/** 补填完成：改的是同一条记录，不新增一组，然后按新值重新问一遍引擎 */
+async function finishEdit(): Promise<void> {
+  const setId = editingSetId.value;
+  if (session.value === null || store === null || setId === null) return;
+
+  const { session: next, events } = updateSet(session.value, { setId, values: wheelValues.value });
+  session.value = next;
+  if (events.length > 0) await applyEvents(store, next.id, events);
+  sheetOpen.value = false;
+  editingSetId.value = null;
+  tapFeedback();
+  nowTick();
+
+  const updated = next.sets.find((s) => s.id === setId);
+  if (updated !== undefined) await refreshHint(next, updated);
+}
+
+/** 问引擎下一组该怎么办，写进 suggestions，并把卡片换成新的 */
+async function refreshHint(current: ActiveSession, set: LoggedSet): Promise<void> {
+  if (store === null) return;
+  const config = metaOf(set.exerciseId)?.config;
+  if (config === undefined) return;
+
+  const hint = hintForSet({ session: current, exercise: config, set, rirEnabled: rirEnabled.value });
+  const cleared = clearHint(current, config.id);
+  const shown = recordHintShown(cleared.session, {
     exerciseId: config.id,
-    fromSet: saved,
+    fromSet: set,
     suggestionId: createId('sug'),
     ruleId: hint.ruleId,
     kind: hint.kind,
     weight: hint.weight,
-    reps: hint.reps.low,
+    // 提示给的是区间时不定次数，只定重量，次数仍沿用上一组
+    reps: hint.reps !== undefined && hint.reps.low === hint.reps.high ? hint.reps.low : null,
     ruleVersion: hint.ruleVersion,
     blockedBy: hint.increaseBlockedBy ?? null,
     payload: JSON.stringify(hint),
-    createdAt: saved.savedAt,
+    createdAt: set.savedAt,
   });
   session.value = shown.session;
-  await applyEvents(store, shown.session.id, shown.events);
+  await applyEvents(store, shown.session.id, [...cleared.events, ...shown.events]);
   hintView.value = hint;
-  hintFromSet.value = saved;
+  hintFromSet.value = set;
 }
 
 /** 第一道放行要看的数：每组从点完成本组到保存用了多久 */
@@ -300,8 +342,15 @@ function logTiming(set: LoggedSet): void {
   );
 }
 
-async function onApplyHint(): Promise<void> {
+/** 提示卡上的按钮：「应用」改下一组预填，「补填」把面板开在那一组上 */
+async function onHintAct(): Promise<void> {
   if (session.value === null || store === null || current.value === undefined) return;
+
+  if (hintText.value?.act === 'fill_rir') {
+    if (hintFromSet.value !== null) openSheetForSet(hintFromSet.value);
+    return;
+  }
+
   const { session: next, events } = applyHint(session.value, current.value.exerciseId, Date.now());
   if (events.length === 0) return;
   session.value = next;
@@ -480,8 +529,9 @@ function notReady(): void {
         v-if="hintText !== null"
         :title="hintText.title"
         :sub="hintText.sub"
+        :action="hintText.action"
         :applied="hintApplied"
-        @apply="onApplyHint"
+        @act="onHintAct"
       />
 
       <view class="tail" />
@@ -509,6 +559,7 @@ function notReady(): void {
         :weight-options="wheelWeights"
         :rep-options="wheelReps"
         :rir-options="wheelRirs"
+        :rir-enabled="rirEnabled"
         @update:values="(v) => (wheelValues = v)"
         @confirm="save('confirm')"
         @note="onNote"

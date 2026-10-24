@@ -8,7 +8,7 @@
  */
 import { ref } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
-import { adjustForLayoff, daysBetween } from '@xunlu/engine';
+import { adjustForLayoff, daysBetween, type LayoffResult } from '@xunlu/engine';
 import { startSession, type ActiveExercise } from '@xunlu/session';
 import AppButton from '@/components/AppButton.vue';
 import SheetLayer from '@/components/SheetLayer.vue';
@@ -107,23 +107,43 @@ function choose(option: DayOption): void {
   if (option.ready) selected.value = option.id;
 }
 
-/** 本次每个动作的目标：先用写死的起始目标，再按距上次训练的天数减重 */
-async function buildExercises(db: Store, date: string): Promise<ActiveExercise[]> {
-  const result: ActiveExercise[] = [];
+type Plan = { readonly position: number; readonly exerciseId: string; readonly layoff: LayoffResult };
+
+/** 本次每个动作的目标：先用写死的起始目标，再让引擎按距上次训练的天数给减重建议 */
+async function buildPlans(db: Store, date: string): Promise<Plan[]> {
+  const plans: Plan[] = [];
   for (const [position, meta] of PUSH_DAY.entries()) {
     const lastDate = await db.lastSessionDate(meta.config.id, null);
-    const target =
+    const layoff: LayoffResult =
       lastDate === null
-        ? meta.startTarget
+        ? { target: meta.startTarget, previous: meta.startTarget, adjusted: false, gapDays: 0, cut: 0 }
         : adjustForLayoff({
             exercise: meta.config,
             target: meta.startTarget,
             lastSessionDate: lastDate,
             today: date,
-          }).target;
-    result.push({ exerciseId: meta.config.id, position, target, increaseHintSetIds: [], hint: null });
+          });
+    plans.push({ position, exerciseId: meta.config.id, layoff });
   }
-  return result;
+  return plans;
+}
+
+/**
+ * 很久没练：引擎只给建议，减不减由用户定（规则 2.0.0 的 notice: 'reduce_or_retest'）。
+ * 第 11 页没画这一屏，先用系统弹窗加词典文案。
+ */
+function askReduce(plans: readonly Plan[]): Promise<boolean> {
+  const days = Math.max(...plans.map((p) => p.layoff.gapDays));
+  return new Promise((resolve) => {
+    uni.showModal({
+      title: t('layoff.title', { count: plans.length }),
+      content: t('layoff.body', { days }),
+      confirmText: t('layoff.reduce'),
+      cancelText: t('layoff.retest'),
+      success: (res) => resolve(res.confirm),
+      fail: () => resolve(true),
+    });
+  });
 }
 
 async function begin(): Promise<void> {
@@ -131,12 +151,23 @@ async function begin(): Promise<void> {
   starting.value = true;
   try {
     const date = todayLocal();
+    const plans = await buildPlans(store, date);
+    const needAsk = plans.filter((p) => p.layoff.notice === 'reduce_or_retest');
+    const reduce = needAsk.length === 0 ? true : await askReduce(needAsk);
+
+    const exercises: ActiveExercise[] = plans.map((p) => ({
+      exerciseId: p.exerciseId,
+      position: p.position,
+      target: reduce ? p.layoff.target : p.layoff.previous,
+      hint: null,
+    }));
+
     const { session, events } = startSession({
       id: createId('session'),
       planId: PUSH_DAY_ID,
       date,
       startedAt: Date.now(),
-      exercises: await buildExercises(store, date),
+      exercises,
     });
     await applyEvents(store, session.id, events);
     uni.redirectTo({ url: '/pages/workout/index' });
