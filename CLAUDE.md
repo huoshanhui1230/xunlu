@@ -81,7 +81,7 @@ npm run build:tokens   从 tokens.json 重新生成 tokens.css
 
 ## 相关文档
 
-- `docs/engine-spec.md`：引擎规则、原因码与建议文案、需要确认的解释
+- `docs/engine-spec.md`：引擎规则、原因码与建议文案、已确认的规则决定
 - `docs/design-tokens.md`：颜色、间距、圆角、字体
 - 方案审核与功能设计规划：https://claude.ai/artifact/JM6ecN4v6nwqjkpCc8HBoE
 - 从设计到上架的流程规划：https://claude.ai/code/artifact/1cd6fa8f-d769-4865-ac63-4bbf4ce5ddd1
