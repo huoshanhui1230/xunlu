@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { addDays, evaluateStatus, type ExerciseSession, type StatusInput } from '../src';
-import { bench, inclineDb, normal, same, session, squat } from './helpers';
+import { bench, inclineDb, same, session, squat } from './helpers';
 
 /** 从 start 起每隔 step 天一次，直到 end（含） */
 function dates(start: string, end: string, step: number): string[] {
@@ -16,7 +16,7 @@ function steady(ds: readonly string[], weight: number, reps: readonly number[]):
 const today = '2026-10-18';
 
 function input(partial: Partial<StatusInput>): StatusInput {
-  return { today, exercises: [], settings: normal, firstUseDate: '2026-09-01', ...partial };
+  return { today, exercises: [], firstUseDate: '2026-09-01', ...partial };
 }
 
 describe('C 状态与减载提醒', () => {

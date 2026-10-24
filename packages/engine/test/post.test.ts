@@ -8,21 +8,58 @@ import {
   type Suggestion,
   type Target,
 } from '../src';
-import {
-  assistedPullUp,
-  bench,
-  conservative,
-  inclineDb,
-  lateralRaise,
-  normal,
-  pullUp,
-  pushUp,
-  same,
-  session,
-  squat,
-} from './helpers';
+import { assistedPullUp, bench, inclineDb, lateralRaise, pullUp, pushUp, same, session, squat } from './helpers';
 
 const run = (input: PostInput): Suggestion => suggestNextTarget(input) as Suggestion;
+const bench4 = { ...bench, plannedSets: 4 };
+
+describe('达标：最后两组力竭时做到下限就算', () => {
+  const lastTwoToFailure = (date: string) => session(date, [[80, 8, 1], [80, 8, 1], [80, 6, 0], [80, 6, 0]]);
+
+  it('4 组：8、8、6（力竭）、6（力竭）算达标；连续两次就加重', () => {
+    const s = run({ exercise: bench4, history: [lastTwoToFailure('2026-10-01')], session: lastTwoToFailure('2026-10-04') });
+    expect(s.reason).toBe('increase_consecutive');
+    expect(s.target.weight).toBe(82.5);
+    expect(s.target.reps).toEqual([6, 6, 6, 6]);
+  });
+
+  it('前面的组力竭仍不算达标', () => {
+    const ev = evaluateSession(bench4, session('2026-10-01', [[80, 8, 0], [80, 8, 1], [80, 8, 1], [80, 8, 1]]), bench.repRange);
+    expect(ev?.achieved).toBe(false);
+    expect(ev?.disallowedRirZero).toBe(1);
+  });
+
+  it('最后两组没力竭就要做到上限', () => {
+    const ev = evaluateSession(bench4, session('2026-10-01', [[80, 8, 1], [80, 8, 1], [80, 7, 1], [80, 6, 2]]), bench.repRange);
+    expect(ev?.achieved).toBe(false);
+    expect(ev?.gapToIncrease).toBe(3);
+  });
+
+  it('最后两组力竭但低于下限：失败', () => {
+    const s = run({
+      exercise: bench4,
+      history: [same('2026-10-01', 80, [8, 8, 7, 7])],
+      session: session('2026-10-04', [[80, 8, 1], [80, 8, 1], [80, 6, 0], [80, 5, 0]]),
+    });
+    expect(s.reason).toBe('failure_first');
+  });
+
+  it('只有 2 组的动作，两组都按最后两组处理', () => {
+    const ev = evaluateSession({ ...bench, plannedSets: 2 }, session('2026-10-01', [[80, 6, 0], [80, 6, 0]]), bench.repRange);
+    expect(ev?.achieved).toBe(true);
+  });
+
+  it('最后一组换了重量做到力竭也不影响', () => {
+    const ev = evaluateSession(bench, session('2026-10-01', [[80, 8, 1], [80, 8, 1], [80, 8, 0], [72.5, 10, 0]]), bench.repRange);
+    expect(ev?.workingWeight).toBe(80);
+    expect(ev?.achieved).toBe(true);
+  });
+
+  it('离加重还差：力竭的最后两组按下限算', () => {
+    const ev = evaluateSession(bench4, session('2026-10-01', [[80, 7, 1], [80, 8, 1], [80, 6, 0], [80, 7, 1]]), bench.repRange);
+    expect(ev?.gapToIncrease).toBe(2);
+  });
+});
 
 describe('B4 加重', () => {
   it('一次达标且每组 RIR ≥ 2 → 加一档', () => {
@@ -30,7 +67,6 @@ describe('B4 加重', () => {
       exercise: bench,
       history: [session('2026-10-01', [[80, 8, 2], [80, 7, 1], [80, 7, 1]])],
       session: same('2026-10-04', 80, [8, 8, 8], 2),
-      settings: normal,
     });
     expect(s.reason).toBe('increase_rir');
     expect(s.target.weight).toBe(82.5);
@@ -38,27 +74,46 @@ describe('B4 加重', () => {
     expect(s.basis).toContain('Zourdos2016');
   });
 
-  it('保守模式只认连续 2 次达标', () => {
-    const input: PostInput = {
-      exercise: bench,
-      history: [session('2026-10-01', [[80, 8, 2], [80, 7, 1], [80, 7, 1]])],
-      session: same('2026-10-04', 80, [8, 8, 8], 2),
-      settings: conservative,
-    };
-    expect(run(input).reason).toBe('confirm_once_more');
-    const twice = run({ ...input, history: [same('2026-10-01', 80, [8, 8, 8], 1)] });
-    expect(twice.reason).toBe('increase_consecutive');
-    expect(twice.target.weight).toBe(82.5);
-  });
-
-  it('连续达标必须是同一重量', () => {
-    const s = run({
-      exercise: bench,
-      history: [same('2026-10-01', 77.5, [8, 8, 8], 1)],
-      session: same('2026-10-04', 80, [8, 8, 8], 1),
-      settings: normal,
+  describe('连续达标以较低的重量为基准', () => {
+    it('82.5 kg 达标后减到 80 kg 又达标 → 下次 82.5 kg', () => {
+      const s = run({
+        exercise: bench,
+        history: [same('2026-10-01', 82.5, [8, 8, 8], 1)],
+        session: same('2026-10-04', 80, [8, 8, 8], 1),
+      });
+      expect(s.reason).toBe('increase_consecutive');
+      expect(s.target.weight).toBe(82.5);
     });
-    expect(s.reason).toBe('confirm_once_more');
+
+    it('80 kg 达标后自己加到 82.5 kg 又达标 → 80 kg 算两次达标，加一档就是 82.5 kg，先保持', () => {
+      const s = run({
+        exercise: bench,
+        history: [same('2026-10-01', 80, [8, 8, 8], 1)],
+        session: same('2026-10-04', 82.5, [8, 8, 8], 1),
+      });
+      expect(s.reason).toBe('confirm_once_more');
+      expect(s.target.weight).toBe(82.5);
+    });
+
+    it('接着在 82.5 kg 再达标一次 → 85 kg', () => {
+      const s = run({
+        exercise: bench,
+        history: [same('2026-10-01', 80, [8, 8, 8], 1), same('2026-10-04', 82.5, [8, 8, 8], 1)],
+        session: same('2026-10-08', 82.5, [8, 8, 8], 1),
+      });
+      expect(s.reason).toBe('increase_consecutive');
+      expect(s.target.weight).toBe(85);
+    });
+
+    it('自己加重后每组都还有 2 次以上余力 → 直接加一档', () => {
+      const s = run({
+        exercise: bench,
+        history: [same('2026-10-01', 80, [8, 8, 8], 1)],
+        session: same('2026-10-04', 82.5, [8, 8, 8], 2),
+      });
+      expect(s.reason).toBe('increase_rir');
+      expect(s.target.weight).toBe(85);
+    });
   });
 
   it('下肢复合动作一档超过 10%：先把次数上限提高 3 次', () => {
@@ -66,7 +121,6 @@ describe('B4 加重', () => {
       exercise: squat,
       history: [same('2026-10-01', 40, [8, 8, 8], 2)],
       session: same('2026-10-04', 40, [8, 8, 8], 2),
-      settings: normal,
     });
     expect(s.reason).toBe('extend_reps');
     expect(s.kind).toBe('add_reps');
@@ -80,7 +134,7 @@ describe('B4 加重', () => {
   describe('一档超过上限：8 kg 哑铃 → 10 kg（+25%）', () => {
     const h1 = same('2026-10-01', 8, [12, 12, 12], 2);
     const s1 = same('2026-10-04', 8, [12, 12, 12], 2);
-    const first = run({ exercise: inclineDb, history: [h1], session: s1, settings: normal });
+    const first = run({ exercise: inclineDb, history: [h1], session: s1 });
 
     it('先把上限从 12 提到 15，每组 +1 次', () => {
       expect(first.reason).toBe('extend_reps');
@@ -94,7 +148,6 @@ describe('B4 加重', () => {
         exercise: inclineDb,
         history: [h1, s1],
         session: same('2026-10-08', 8, [15, 15, 15], 2),
-        settings: normal,
         currentTarget: first.target,
       });
       expect(s.reason).toBe('increase_after_extension');
@@ -105,16 +158,18 @@ describe('B4 加重', () => {
       expect(s.target.extended).toBe(false);
     });
 
-    it('保守模式一律不超过 5%：做满后也保持', () => {
+    it('没等做满就自己换了 10 kg：以 10 kg 为新基准，按原区间继续', () => {
       const s = run({
         exercise: inclineDb,
-        history: [same('2026-10-04', 8, [15, 15, 15], 1)],
-        session: same('2026-10-08', 8, [15, 15, 15], 1),
-        settings: conservative,
+        history: [h1, s1],
+        session: same('2026-10-08', 10, [9, 8, 8], 1),
         currentTarget: first.target,
       });
-      expect(s.reason).toBe('step_exceeds_conservative_cap');
-      expect(s.target.weight).toBe(8);
+      expect(s.reason).toBe('progress_reps');
+      expect(s.target.weight).toBe(10);
+      expect(s.target.repRange).toEqual({ min: 8, max: 12 });
+      expect(s.target.extended).toBe(false);
+      expect(s.target.reps).toEqual([10, 9, 9]);
     });
   });
 
@@ -123,7 +178,6 @@ describe('B4 加重', () => {
       exercise: pushUp,
       history: [same('2026-10-01', 0, [20, 20, 20], 2)],
       session: same('2026-10-04', 0, [20, 20, 20], 2),
-      settings: normal,
     });
     expect(s.reason).toBe('reps_only');
     expect(s.target.weight).toBe(0);
@@ -133,14 +187,13 @@ describe('B4 加重', () => {
   it('自重加负重无法确认幅度：先上限 +3，做满后加 2.5 kg', () => {
     const h = same('2026-10-01', 0, [10, 10, 10], 2);
     const s1 = same('2026-10-04', 0, [10, 10, 10], 2);
-    const first = run({ exercise: pullUp, history: [h], session: s1, settings: normal });
+    const first = run({ exercise: pullUp, history: [h], session: s1 });
     expect(first.reason).toBe('extend_reps');
     expect(first.target.repRange).toEqual({ min: 6, max: 13 });
     const second = run({
       exercise: pullUp,
       history: [h, s1],
       session: same('2026-10-08', 0, [13, 13, 13], 2),
-      settings: normal,
       currentTarget: first.target,
     });
     expect(second.reason).toBe('increase_after_extension');
@@ -151,13 +204,12 @@ describe('B4 加重', () => {
   it('助力动作：加重 = 减一档助力；助力减到 0 后只加次数', () => {
     const h = same('2026-10-01', 20, [12, 12, 12], 2);
     const s1 = same('2026-10-04', 20, [12, 12, 12], 2);
-    const first = run({ exercise: assistedPullUp, history: [h], session: s1, settings: normal });
+    const first = run({ exercise: assistedPullUp, history: [h], session: s1 });
     expect(first.reason).toBe('extend_reps');
     const second = run({
       exercise: assistedPullUp,
       history: [h, s1],
       session: same('2026-10-08', 20, [15, 15, 15], 2),
-      settings: normal,
       currentTarget: first.target,
     });
     expect(second.kind).toBe('increase');
@@ -167,7 +219,6 @@ describe('B4 加重', () => {
       exercise: assistedPullUp,
       history: [same('2026-10-01', 0, [12, 12, 12], 2)],
       session: same('2026-10-04', 0, [12, 12, 12], 2),
-      settings: normal,
     });
     expect(done.reason).toBe('assistance_done');
     expect(done.notes).toContain('switch_to_bodyweight');
@@ -182,7 +233,6 @@ describe('B3 失败', () => {
       exercise: bench,
       history: [same('2026-10-11', 80, [8, 8, 8], 2), failed],
       session: session('2026-10-18', [[82.5, 7, 1], [82.5, 6, 0], [82.5, 5, 0]]),
-      settings: normal,
     });
     expect(s.reason).toBe('failure_repeat');
     expect(s.kind).toBe('reduce');
@@ -191,12 +241,11 @@ describe('B3 失败', () => {
     expect(s.target.reps).toEqual([6, 6, 6]);
   });
 
-  it('工作重量以外的组力竭也算失败（更保守）', () => {
+  it('工作重量以外的组力竭且低于下限也算失败', () => {
     const s = run({
       exercise: bench,
       history: [same('2026-10-01', 80, [8, 8, 7], 1)],
       session: session('2026-10-04', [[80, 8, 1], [80, 7, 1], [72.5, 5, 0]]),
-      settings: normal,
     });
     expect(s.reason).toBe('failure_first');
     expect(s.target.weight).toBe(80);
@@ -207,7 +256,6 @@ describe('B3 失败', () => {
       exercise: bench,
       history: [same('2026-10-01', 80, [6, 6, 6], 1)],
       session: same('2026-10-04', 80, [5, 5, 5], null),
-      settings: normal,
     });
     expect(s.reason).toBe('failure_first');
   });
@@ -217,37 +265,26 @@ describe('B3 失败', () => {
       exercise: pullUp,
       history: [same('2026-10-01', 0, [5, 5, 4], 0)],
       session: same('2026-10-04', 0, [5, 4, 4], 0),
-      settings: normal,
     });
     expect(s.reason).toBe('cannot_reduce');
     expect(s.notes).toContain('try_easier_variation');
   });
 });
 
-describe('B2 回归', () => {
+describe('B2 回归：以这次表现为新基准', () => {
   const before = same('2026-10-01', 80, [8, 8, 7], 1);
 
-  it('超过 14 天：减 10%，向下取整到 2.5 kg → 70 kg', () => {
-    const s = run({ exercise: bench, history: [before], session: same('2026-10-16', 80, [8, 8, 7], 1), settings: normal });
+  it('超过 14 天没练：保持这次的重量，不加重', () => {
+    const s = run({ exercise: bench, history: [before], session: same('2026-10-16', 80, [8, 8, 8], 2) });
     expect(s.ruleId).toBe('B2');
-    expect(s.kind).toBe('reduce');
-    expect(s.target.weight).toBe(70);
-    expect(s.target.reps).toEqual([8, 8, 7]);
-    expect(s.detail).toEqual({ gapDays: 15, cut: 0.1 });
+    expect(s.reason).toBe('return_baseline');
+    expect(s.kind).toBe('hold');
+    expect(s.target.weight).toBe(80);
+    expect(s.target.reps).toEqual([8, 8, 8]);
+    expect(s.detail.gapDays).toBe(15);
   });
 
-  it('超过 28 天：减 20% → 62.5 kg', () => {
-    const s = run({ exercise: bench, history: [before], session: same('2026-10-30', 80, [8, 8, 7], 1), settings: normal });
-    expect(s.target.weight).toBe(62.5);
-    expect(s.detail.cut).toBe(0.2);
-  });
-
-  it('正好 14 天不算回归', () => {
-    const s = run({ exercise: bench, history: [before], session: same('2026-10-15', 80, [8, 8, 7], 1), settings: normal });
-    expect(s.ruleId).not.toBe('B2');
-  });
-
-  it('开始训练时已按回归减过，训练后不再重复减', () => {
+  it('按建议减到 70 kg 练：以 70 kg 为新基准', () => {
     const adjusted: Target = {
       weight: 70,
       sets: 3,
@@ -257,30 +294,48 @@ describe('B2 回归', () => {
       targetRir: 2,
       layoffAdjusted: true,
     };
+    const s = run({ exercise: bench, history: [before], session: same('2026-10-16', 70, [8, 8, 8], 2), currentTarget: adjusted });
+    expect(s.reason).toBe('return_baseline');
+    expect(s.target.weight).toBe(70);
+  });
+
+  it('回来后第一次没做到下限：按失败规则，先让每组做到下限', () => {
+    const s = run({ exercise: bench, history: [before], session: session('2026-10-16', [[80, 7, 1], [80, 6, 1], [80, 5, 0]]) });
+    expect(s.ruleId).toBe('B3');
+    expect(s.reason).toBe('failure_first');
+    expect(s.target.weight).toBe(80);
+    expect(s.target.reps).toEqual([6, 6, 6]);
+    expect(s.detail.gapDays).toBe(15);
+  });
+
+  it('没练之前的失败不算连续失败', () => {
+    const failedBefore = session('2026-10-01', [[80, 7, 1], [80, 6, 1], [80, 5, 0]]);
+    const s = run({ exercise: bench, history: [failedBefore], session: session('2026-10-20', [[80, 7, 1], [80, 6, 1], [80, 5, 0]]) });
+    expect(s.reason).toBe('failure_first');
+  });
+
+  it('回来后的第二次照常判断，只和回来后的训练比', () => {
     const s = run({
       exercise: bench,
-      history: [before],
-      session: same('2026-10-16', 70, [8, 8, 8], 2),
-      settings: normal,
-      currentTarget: adjusted,
+      history: [before, same('2026-10-16', 70, [8, 8, 8], 1)],
+      session: same('2026-10-19', 70, [8, 8, 8], 1),
     });
-    expect(s.ruleId).toBe('B4');
+    expect(s.reason).toBe('increase_consecutive');
     expect(s.target.weight).toBe(72.5);
   });
 
-  it('用户自己减到 70 kg 也不再重复减', () => {
-    const s = run({ exercise: bench, history: [before], session: same('2026-10-16', 70, [8, 8, 7], 1), settings: normal });
+  it('正好 14 天不算回归', () => {
+    const s = run({ exercise: bench, history: [before], session: same('2026-10-15', 80, [8, 8, 7], 1) });
     expect(s.ruleId).not.toBe('B2');
   });
 });
 
 describe('B5 推进与 B6 平台期', () => {
-  it('每组都到上限但有组力竭：保持，先留出余力', () => {
+  it('每组都到上限但前面的组力竭：保持，先留出余力', () => {
     const s = run({
       exercise: bench,
       history: [same('2026-10-01', 80, [8, 7, 7], 1)],
       session: session('2026-10-04', [[80, 8, 0], [80, 8, 1], [80, 8, 1]]),
-      settings: normal,
     });
     expect(s.reason).toBe('at_max_with_failure');
     expect(s.target.reps).toEqual([8, 8, 8]);
@@ -293,7 +348,7 @@ describe('B5 推进与 B6 平台期', () => {
       same('2026-10-08', 80, [8, 7, 7]),
       same('2026-10-11', 80, [8, 7, 7]),
     ];
-    const s = run({ exercise: bench, history: all.slice(0, 3), session: all[3]!, settings: normal });
+    const s = run({ exercise: bench, history: all.slice(0, 3), session: all[3]! });
     expect(s.ruleId).toBe('B6');
     expect(s.kind).toBe('plateau');
     expect(s.target.weight).toBe(80);
@@ -310,7 +365,7 @@ describe('B5 推进与 B6 平台期', () => {
       same('2026-10-08', 80, [8, 7, 7]),
       same('2026-10-11', 80, [8, 8, 7]),
     ];
-    const s = run({ exercise: bench, history: all.slice(0, 3), session: all[3]!, settings: normal });
+    const s = run({ exercise: bench, history: all.slice(0, 3), session: all[3]! });
     expect(s.reason).toBe('progress_reps');
   });
 
@@ -321,7 +376,18 @@ describe('B5 推进与 B6 平台期', () => {
       same('2026-10-08', 80, [7, 7, 7]),
       same('2026-10-11', 80, [8, 7, 7]),
     ];
-    const s = run({ exercise: bench, history: all.slice(0, 3), session: all[3]!, settings: normal });
+    const s = run({ exercise: bench, history: all.slice(0, 3), session: all[3]! });
+    expect(s.ruleId).not.toBe('B6');
+  });
+
+  it('长时间没练之前的记录不算进平台期', () => {
+    const all = [
+      same('2026-09-01', 80, [8, 8, 7]),
+      same('2026-09-04', 80, [8, 7, 7]),
+      same('2026-10-01', 80, [8, 7, 7]),
+      same('2026-10-04', 80, [8, 7, 7]),
+    ];
+    const s = run({ exercise: bench, history: all.slice(0, 3), session: all[3]! });
     expect(s.ruleId).not.toBe('B6');
   });
 
@@ -332,7 +398,7 @@ describe('B5 推进与 B6 平台期', () => {
       same('2026-10-08', 10, [14, 13, 13]),
       same('2026-10-11', 10, [14, 13, 13]),
     ];
-    const s = run({ exercise: lateralRaise, history: all.slice(0, 3), session: all[3]!, settings: normal });
+    const s = run({ exercise: lateralRaise, history: all.slice(0, 3), session: all[3]! });
     expect(s.ruleId).toBe('B5');
   });
 });
@@ -354,7 +420,6 @@ describe('其他', () => {
       exercise: bench,
       history: [same('2026-10-11', 80, [8, 8, 8], 2)],
       session: same('2026-10-15', 82.5, [6, 6], 4),
-      settings: normal,
       inDeload: true,
       preDeloadTarget: pre,
     });
@@ -367,7 +432,6 @@ describe('其他', () => {
       exercise: bench,
       history: [same('2026-10-11', 80, [8, 8, 8], 2)],
       session: same('2026-10-15', 80, [6, 6], 4),
-      settings: normal,
       inDeload: true,
     });
     expect(s.ruleId).toBe('DL');
@@ -380,25 +444,19 @@ describe('其他', () => {
       exercise: bench,
       history: [{ ...same('2026-10-04', 80, [6, 6], 4), deload: true }],
       session: same('2026-10-08', 80, [8, 8, 8], 2),
-      settings: normal,
     });
     expect(s.ruleId).toBe('B1');
   });
 
   it('计划组数多于本次组数时，用最后一组补齐；最多 6 组', () => {
-    const four = run({
-      exercise: { ...bench, plannedSets: 4 },
-      history: [],
-      session: session('2026-10-01', [[80, 8, 2], [80, 7, 1], [80, 6, 1]]),
-      settings: normal,
-    });
+    const four = run({ exercise: bench4, history: [], session: session('2026-10-01', [[80, 8, 2], [80, 7, 1], [80, 6, 1]]) });
     expect(four.target.reps).toEqual([8, 7, 6, 6]);
-    const eight = run({ exercise: { ...bench, plannedSets: 8 }, history: [], session: same('2026-10-01', 80, [8]), settings: normal });
+    const eight = run({ exercise: { ...bench, plannedSets: 8 }, history: [], session: same('2026-10-01', 80, [8]) });
     expect(eight.target.sets).toBe(6);
   });
 
   it('本次没有有效组时返回 null', () => {
-    expect(suggestNextTarget({ exercise: bench, history: [], session: { date: '2026-10-01', sets: [] }, settings: normal })).toBeNull();
+    expect(suggestNextTarget({ exercise: bench, history: [], session: { date: '2026-10-01', sets: [] } })).toBeNull();
   });
 
   it('主项目标 RIR ≤ 1 时提醒保护', () => {
@@ -412,7 +470,6 @@ describe('其他', () => {
       exercise: bench,
       history: [same('2026-10-08', 80, [8, 8, 8], 1)],
       session: same('2026-10-11', 80, [8, 8, 8], 1),
-      settings: normal,
     };
     const ok = run(input);
     expect(checkSuggestion(input, ok)).toEqual([]);

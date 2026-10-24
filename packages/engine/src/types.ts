@@ -63,11 +63,6 @@ export interface ExerciseSession {
   readonly deload?: boolean;
 }
 
-export interface Settings {
-  /** 保守模式：只认连续 2 次达标，加重一律 ≤ 5%，不出组间加重提示 */
-  readonly conservative: boolean;
-}
-
 /** 下次目标，采纳后用于下次训练预填 */
 export interface Target {
   readonly weight: number;
@@ -107,33 +102,43 @@ export interface WeightChange {
 // A. 组间提示
 // ---------------------------------------------------------------------------
 
-export type IntraRuleId = 'A1' | 'A2' | 'A3' | 'A4';
-export type IntraKind = 'increase' | 'add_reps' | 'decrease' | 'hold';
+export type IntraRuleId = 'A0' | 'A1' | 'A2' | 'A3' | 'A4';
 
-/** 能完成的次数够了却没出加重提示的原因 */
-export type IntraBlock =
-  | 'conservative'
-  | 'deload'
-  | 'limit_reached'
-  | 'to_failure'
-  | 'reps_only'
-  | 'assistance_done'
-  | 'cap_unverifiable'
-  | 'step_exceeds_cap'
-  | 'guardrail';
+/**
+ * need_rir：第 1 组没填 RIR，提示填写
+ * increase：加一档，给具体重量（一档在加重上限内）
+ * nudge：余力充足但一档超过上限或无法确认幅度，只提醒方向，不给数值
+ * add_reps：重量不变，多做 1–2 次
+ * decrease：减一档
+ * hold：保持
+ */
+export type IntraKind = 'need_rir' | 'increase' | 'nudge' | 'add_reps' | 'decrease' | 'hold';
+
+/** 能完成的次数够了却没提示加重的原因 */
+export type IntraBlock = 'deload' | 'already_increased' | 'to_failure' | 'guardrail';
+
+/** 为什么只提醒方向、不给具体数值 */
+export type NudgeReason = 'step_exceeds_cap' | 'cap_unverifiable' | 'reps_only' | 'assistance_done';
+
+/** 组间提示用的 RIR 来自哪里 */
+export type RirSource = 'entered' | 'previous' | 'none';
 
 export interface SetHint {
   readonly ruleId: IntraRuleId;
   readonly kind: IntraKind;
-  /** 下一组建议重量 */
+  /** 下一组预填重量：只有 increase、decrease 会改变，其余等于本组重量 */
   readonly weight: number;
-  /** 下一组目标次数 */
-  readonly reps: { readonly low: number; readonly high: number };
-  /** 能完成的次数 = 本组次数 + RIR；没填 RIR 时只算次数 */
+  /** 下一组目标次数；need_rir、nudge 没有（不给具体数值） */
+  readonly reps?: { readonly low: number; readonly high: number };
+  /** nudge：可以提醒的方向 */
+  readonly nudge?: readonly ('weight' | 'reps')[];
+  readonly nudgeReason?: NudgeReason;
+  /** 能完成的次数 = 本组次数 + RIR；RIR 未知时只算次数 */
   readonly capacity: number;
   /** 提示加重的门槛 = ceil(次数上限 × 1.5) */
   readonly threshold: number;
-  readonly rirKnown: boolean;
+  /** 本组填写 / 沿用本次该动作上一组 / 未知 */
+  readonly rirSource: RirSource;
   readonly change: WeightChange;
   readonly increaseBlockedBy?: IntraBlock;
   readonly basis: readonly CitationKey[];
@@ -150,8 +155,8 @@ export type SuggestionKind = 'increase' | 'add_reps' | 'hold' | 'reduce' | 'plat
 export type PostReason =
   /** B1 第一次记录该动作 */
   | 'baseline'
-  /** B2 很久没练：减重 10% 或 20% */
-  | 'layoff'
+  /** B2 很久没练后的第一次：以这次表现为新基准，保持重量 */
+  | 'return_baseline'
   /** B3 第一次失败：维持重量，先做到下限 */
   | 'failure_first'
   /** B3 连续第 2 次失败：减重 5–10% */
@@ -166,8 +171,6 @@ export type PostReason =
   | 'increase_after_extension'
   /** B4 一档超过上限或无法确认幅度：先把次数上限提高 3 次 */
   | 'extend_reps'
-  /** B4 保守模式下一档超过 5%：保持 */
-  | 'step_exceeds_conservative_cap'
   /** B4 增量为 0 的动作：只加次数 */
   | 'reps_only'
   /** B4 助力已减到 0：只加次数 */

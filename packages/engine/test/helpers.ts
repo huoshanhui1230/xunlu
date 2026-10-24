@@ -1,4 +1,4 @@
-import type { ExerciseConfig, ExerciseSession, SetRecord, Settings } from '../src';
+import type { ExerciseConfig, ExerciseSession, SetRecord } from '../src';
 
 type Row = readonly [weight: number, reps: number, rir?: number | null];
 
@@ -18,9 +18,6 @@ export function same(date: string, weight: number, reps: readonly number[], rir:
     reps.map((r) => [weight, r, rir] as const),
   );
 }
-
-export const normal: Settings = { conservative: false };
-export const conservative: Settings = { conservative: true };
 
 export const bench: ExerciseConfig = {
   id: 'barbell-bench-press',

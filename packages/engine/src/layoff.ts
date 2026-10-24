@@ -1,8 +1,8 @@
 /**
- * B2 回归：很久没练后先减重。
+ * 回归：很久没练后，开始训练时（预填之前）先给出减重建议，并提示用户减重或重新测试。
  *
- * 开始训练时（预填之前）调用 adjustForLayoff，让回归后的第一次训练就变轻；
- * 训练后的第 2 条规则只在本次没按减过的重量练时才触发，不会重复减。
+ * 减重只是建议，记录时用户可以自己改重量。训练后不再减重：
+ * 回归后的第一次以这次实际练的表现为新基准（见 post.ts 的 B2）。
  */
 import { DEFAULT_PARAMS, type EngineParams } from './params';
 import type { ExerciseConfig, Target } from './types';
@@ -27,10 +27,15 @@ export interface LayoffInput {
 }
 
 export interface LayoffResult {
+  /** 建议的目标：长时间没练时减了重量（只是建议，记录时可以改） */
   readonly target: Target;
+  /** 原来的目标：用户选"重新测试"时用 */
+  readonly previous: Target;
   readonly adjusted: boolean;
   readonly gapDays: number;
   readonly cut: number;
+  /** 需要提示用户：建议减重，或按原重量重新测试 */
+  readonly notice?: 'reduce_or_retest';
 }
 
 export function adjustForLayoff(input: LayoffInput): LayoffResult {
@@ -38,7 +43,9 @@ export function adjustForLayoff(input: LayoffInput): LayoffResult {
   const gapDays = daysBetween(input.lastSessionDate, input.today);
   const cut = layoffCut(gapDays, p);
   const t = input.target;
-  if (cut === 0 || t.layoffAdjusted === true) return { target: t, adjusted: false, gapDays, cut };
+  if (cut === 0 || t.layoffAdjusted === true) {
+    return { target: t, previous: t, adjusted: false, gapDays, cut };
+  }
 
   const ex = input.exercise;
   const base = ex.repRange;
@@ -60,5 +67,5 @@ export function adjustForLayoff(input: LayoffInput): LayoffResult {
           extended: false,
           layoffAdjusted: true,
         };
-  return { target, adjusted: true, gapDays, cut };
+  return { target, previous: t, adjusted: true, gapDays, cut, notice: 'reduce_or_retest' };
 }

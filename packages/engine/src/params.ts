@@ -2,7 +2,7 @@
  * 所有阈值集中在这里。改任何数值都要：升 RULE_VERSION、补测试、同步 docs/engine-spec.md。
  */
 
-export const RULE_VERSION = '1.0.0';
+export const RULE_VERSION = '2.0.0';
 
 export interface EngineParams {
   /** 规则版本：每条建议都记下它，方便回溯和调参 */
@@ -13,17 +13,17 @@ export interface EngineParams {
   readonly defaultTargetRir: number;
   /** 单个动作每次最多几组 */
   readonly maxSetsPerExercise: number;
-  /** 保守模式下的加重上限 */
-  readonly conservativeMaxIncreasePct: number;
-  /** 当前重量下 RIR 为 0 的组达到这个数就不加重 */
-  readonly maxFailureSets: number;
+  /** 最后几个工作组力竭（RIR 0）时，次数做到下限也算达标 */
+  readonly relaxedLastSets: number;
   readonly intra: {
     /** 能完成的次数 ≥ ceil(次数上限 × 该倍数) 才提示加重 */
     readonly capacityFactor: number;
     /** 次数未到上限且 RIR ≥ 该值时，提示多做 1–2 次 */
     readonly moreRepsMinRir: number;
-    /** 同一动作每次训练最多因组间提示加重几次 */
-    readonly maxIncreaseHints: number;
+    /** 同一重量下"RIR 为 0 且次数不高于下限"的组达到这个数，不出组间加重提示 */
+    readonly failureSetsAtMin: number;
+    /** 同一动作每次训练最多加重几次（按实际加重计）；达到后不再提示加重 */
+    readonly maxIncreasesPerSession: number;
   };
   readonly progression: {
     /** 连续几次达标可以加重 */
@@ -34,10 +34,10 @@ export interface EngineParams {
     readonly extendRepsBy: number;
   };
   readonly layoff: {
-    /** 超过这么多天没练 → 减 cut1 */
+    /** 超过这么多天没练 → 建议减 cut1；训练后从这次起重新计算 */
     readonly days1: number;
     readonly cut1: number;
-    /** 超过这么多天没练 → 减 cut2 */
+    /** 超过这么多天没练 → 建议减 cut2 */
     readonly days2: number;
     readonly cut2: number;
   };
@@ -80,9 +80,8 @@ export const DEFAULT_PARAMS: EngineParams = {
   e1rmMaxReps: 10,
   defaultTargetRir: 2,
   maxSetsPerExercise: 6,
-  conservativeMaxIncreasePct: 0.05,
-  maxFailureSets: 2,
-  intra: { capacityFactor: 1.5, moreRepsMinRir: 3, maxIncreaseHints: 1 },
+  relaxedLastSets: 2,
+  intra: { capacityFactor: 1.5, moreRepsMinRir: 3, failureSetsAtMin: 2, maxIncreasesPerSession: 1 },
   progression: { consecutiveHits: 2, singleHitMinRir: 2, extendRepsBy: 3 },
   layoff: { days1: 14, cut1: 0.1, days2: 28, cut2: 0.2 },
   failure: { cut: 0.05 },
