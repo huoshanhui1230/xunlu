@@ -1,0 +1,25 @@
+{
+  "name": "@xunlu/session",
+  "version": "1.0.0",
+  "private": true,
+  "description": "训录训练过程逻辑：计时、滚轮预填、撤销窗口、状态机与恢复。纯 TypeScript，不依赖 uni、plus 和 DOM。",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@xunlu/engine": "*"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.5"
+  }
+}
