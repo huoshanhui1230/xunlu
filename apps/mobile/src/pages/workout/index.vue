@@ -125,6 +125,15 @@ const undoSeconds = computed(() =>
 );
 const hintApplied = computed(() => current.value?.hint?.applied === true);
 
+/** 面板标题上的组号：补填时是被改的那一组，平时是正在记的那一组 */
+const sheetSetNo = computed(() => {
+  if (editingSetId.value !== null) {
+    const editing = session.value?.sets.find((s) => s.id === editingSetId.value);
+    if (editing !== undefined) return editing.setNo;
+  }
+  return session.value?.pending?.setNo ?? upcomingSetNo.value;
+});
+
 const targetReps = computed(() => {
   const target = current.value?.target;
   if (target === undefined) return '';
@@ -551,7 +560,7 @@ function notReady(): void {
     <!-- MF04 反馈面板：关闭也保存 -->
     <SheetLayer :visible="sheetOpen" :dim="0.28" @close="save('dismiss')">
       <FeedbackSheet
-        :set-no="session.pending?.setNo ?? upcomingSetNo"
+        :set-no="sheetSetNo"
         :exercise-name="$t(`exercise.${meta.config.id}`)"
         :load-type-label="$t(`loadType.${meta.config.loadType}`)"
         :unit="unit"
