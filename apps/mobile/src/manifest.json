@@ -2,7 +2,7 @@
     "name" : "训录",
     /* appid 要用自己的 DCloud 账号获取：HBuilderX 打开本工程 → manifest.json → 基础配置 → 重新获取。
        没有 appid 不能运行到手机，也不能做自定义调试基座。详见 docs/ios-真机调试.md */
-    "appid" : "",
+    "appid" : "H5GFD11F1A",
     "description" : "力量训练记录与渐进超负荷建议",
     "versionName" : "0.1.0",
     "versionCode" : "100",
