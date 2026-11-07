@@ -9,6 +9,7 @@ export { elapsedSince, formatElapsed, inRestRange, restPhase, type RestPhase } f
 export {
   differsFromPrefill,
   optionIndex,
+  parseWeightInput,
   prefillFor,
   repOptions,
   rirOptions,
@@ -19,9 +20,9 @@ export {
 export { UNDO_WINDOW_MS, canUndo, undoRemainingMs, undoRemainingSeconds } from './undo';
 export {
   appliedHintOf,
+  appliedReps,
   applyHint,
   beginSet,
-  clearHint,
   decideHint,
   endSession,
   findExercise,

@@ -45,7 +45,7 @@ const emit = defineEmits<{ (e: 'tap'): void }>();
 
 .btn-label {
   font-size: var(--font-17);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-medium);
   line-height: 24px;
 }
 

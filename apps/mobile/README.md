@@ -46,10 +46,11 @@ H5 端的存储是**内存实现**，刷新页面就清空。「App 杀掉后重
 
 ## 装到 iPhone 上
 
-见 [`docs/ios-真机调试.md`](../../docs/ios-真机调试.md)。
+见 [`docs/ios-真机调试.md`](../../docs/ios-真机调试.md)：把 `apps/mobile` 整个文件夹拖进 HBuilderX，
+编译走工程自己的编译器。下面两条是拖不进去时的退路：
 
 ```bash
-npm run dev:app      # 持续编译到 dist/dev/app，HBuilderX 导入这个目录
+npm run dev:app      # 持续编译到 dist/dev/app
 npm run build:app    # 一次性编译到 dist/build/app
 ```
 
@@ -61,6 +62,10 @@ npm run build:h5     # 打 H5 产物
 npm run sync:tokens  # 退路：把 tokens.css 复制进 src/styles（见下）
 ```
 
+存储的测试在 `test/`，由根目录的 Vitest 跑（这里不装 Vitest，模板锁着旧版 Vite），根目录 `npm test` 会带上。
+它用 Node 自带的 `node:sqlite` 照 `plus.sqlite` 的接口垫一层，让 `SqliteStore` 的每条 SQL 在真正的 SQLite 上执行，
+「杀掉重开」也走一遍；`plus.sqlite` 自身的行为只有真机能验证。
+
 `sync:tokens` 平时用不上。App.vue 直接 `@import '@xunlu/tokens/tokens.css'`，
 H5 和 App 两端都编得过（已验证）。万一以后某个平台的编译器不认工程目录外的 `@import`，
 跑一次这个脚本，把 App.vue 里的路径换成 `./styles/tokens.generated.css` 即可。
@@ -71,8 +76,8 @@ H5 和 App 两端都编得过（已验证）。万一以后某个平台的编译
 src/
   pages/start      MF02 开始训练弹层（背后只有训练日那张卡，首页不做）
   pages/workout    MF03 记录页 / MF04 反馈面板 / MF05 下一组提示 / MF05a 已应用
-  components/      按画板切的组件：按钮、弹层、滚轮、提示卡、已保存卡
-  storage/         Store 接口 + SQLite（App）+ 内存（H5）两套实现，表结构在 schema.ts
+  components/      按画板切的组件：按钮、图标、弹层、滚轮、提示卡、撤销条
+  storage/         Store 接口 + SQLite（App）+ 内存（H5）两套实现，条件编译挑选，表结构在 schema.ts
   services/        只碰平台的薄封装：每秒重绘、屏幕常亮、短震动
   data/            推日 6 个动作、演示用的上次训练
   locale/          界面文字；页面里不写死中文

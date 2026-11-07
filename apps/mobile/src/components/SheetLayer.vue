@@ -45,7 +45,7 @@ const emit = defineEmits<{ (e: 'close'): void }>();
   bottom: 0;
   display: flex;
   flex-direction: column;
-  max-height: 88%;
+  max-height: 84%;
   background-color: var(--color-sheet);
   border-top-left-radius: var(--radius-28);
   border-top-right-radius: var(--radius-28);

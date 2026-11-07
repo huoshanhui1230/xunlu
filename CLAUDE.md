@@ -47,9 +47,10 @@ npm run build:tokens   从 tokens.json 重新生成 tokens.css
 ```
 cd apps/mobile && npm install
 npm run dev:h5         浏览器预览，默认 http://localhost:5173
-npm run dev:app        持续编译到 dist/dev/app，HBuilderX 导入这个目录
 npm run typecheck      vue-tsc，连带检查引擎和过程逻辑的源码
 ```
+
+装到 iPhone：把 `apps/mobile` 整个文件夹拖进 HBuilderX（不是 `src`，也不是 `dist/dev/app`），步骤见 `docs/ios-真机调试.md`。根目录 `npm test` 会连带跑 `apps/mobile/test` 的存储测试。
 
 ## 引擎约定（必须遵守）
 
@@ -77,12 +78,14 @@ npm run typecheck      vue-tsc，连带检查引擎和过程逻辑的源码
 - 开始训练弹层：热身与"疼痛即停"提醒固定在"开始记录"按钮上方，不随训练日列表滚动；训练日多时只滚动列表（训练日可能多于 5 个）。
 - 记录页只有一个主按钮"完成本组"；反馈面板是重量、次数、RIR 三个滚轮，数值预填，重量按动作默认增量取值；关闭面板也保存；保存后 5 秒内可撤销。
 - RIR 预填本次该动作上一组的值；每个动作第 1 组不预填 RIR，没填时下一组提示改为请用户补填。设置里关闭"RIR 显示"后，面板不显示 RIR 滚轮，`suggestNextSet` 传 `rirEnabled: false`。
-- 颜色只用 `packages/tokens/tokens.css` 的变量：状态色只表达状态并配文字；间隔计时用 `--color-timer`，进入推荐区间变 `--color-success`。
+- 颜色只用 `packages/tokens/tokens.css` 的变量：状态色只表达状态并配文字；间隔计时用 `--color-timer`，进入推荐区间变 `--color-success`（2026-11-07 确认：以这条为准，第 11 页旁注的"颜色固定"不采用）。
 - 字体用 `-apple-system`、`PingFang SC`；计时等跳动的数字加 `font-variant-numeric: tabular-nums`。字号、按钮高度、触控区域用 px。
 - 训练中屏幕常亮、完成一组短震动；App 被系统关闭后重开提示"继续上次训练"。
 - 计时、预填、撤销窗口、状态机、恢复写在 `packages/session`，和引擎一样是纯函数、有单元测试；页面只做显示和碰平台（`services/` 那几个薄封装）。
 - 状态机每一步返回"新状态 + 待写事件"，`storage/events.ts` 照单写库。点"完成本组"先落 `pending_sets`，保存时写 `sets` 再清 `pending`，中途被杀掉也能恢复成自洽的状态。
 - 每组记下 `log_ms`（从点"完成本组"到保存用了多久），这是第一道放行要看的数。
+- 状态栏和 Home Indicator 的高度用 `base.scss` 的 `--safe-top`、`--safe-bottom` 算进 padding，不要写成工具类：scoped 样式的 `padding` 简写会把工具类盖掉，而浏览器里 inset 是 0，看不出来。
+- 读设计稿的文字要用 `get_design_context`：`get_metadata` 给的是图层名，第 11 页有些图层名是旧的（比如计时那条旁注）。
 
 ## 设计稿（Figma）
 

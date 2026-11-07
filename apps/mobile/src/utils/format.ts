@@ -32,6 +32,11 @@ export function formatSet(weight: number, reps: number, unit: Unit): string {
   return t('format.weightByReps', { weight: formatWeight(weight, unit), reps: formatReps(reps) });
 }
 
+/** 80 kg × 8：已完成组列表里不带「次」 */
+export function formatSetShort(weight: number, reps: number, unit: Unit): string {
+  return t('format.weightByReps', { weight: formatWeight(weight, unit), reps });
+}
+
 /** 2–3 分钟 */
 export function formatRestRange(minSec: number, maxSec: number): string {
   return t('format.minutesRange', { low: Math.round(minSec / 60), high: Math.round(maxSec / 60) });
@@ -49,12 +54,6 @@ export function formatMonthDayCn(date: string): string {
   return t('format.monthDayCn', { month, day });
 }
 
-/** 1,920 kg：容量带千分位 */
-export function formatVolume(value: number, unit: Unit): string {
-  const rounded = Math.round(value);
-  const grouped = rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return t('format.weight', { value: grouped, unit: t(`unit.${unit}`) });
-}
 
 /** 2.4：记一组用了多久，只打控制台 */
 export function formatSeconds(ms: number): string {

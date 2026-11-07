@@ -5,20 +5,22 @@
  *
  * 一条主线：点「完成本组」→ 三个滚轮确认 → 保存 → 看到下一组提示。
  * 计时只存时间戳，界面每秒从时间戳重算；加重减重一律问引擎，这里不算。
+ * 写库排队进行（见 persist），界面不等它，所以面板开合不会被存储拖慢。
  */
 import { computed, ref } from 'vue';
 import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app';
-import { setVolume, type SetHint } from '@xunlu/engine';
+import type { SetHint } from '@xunlu/engine';
 import {
+  appliedHintOf,
   applyHint,
   beginSet,
-  clearHint,
   elapsedSince,
   endSession,
   formatElapsed,
   hintForSet,
   inRestRange,
   nextSetNo,
+  parseWeightInput,
   recordHintShown,
   repOptions,
   restoreSession,
@@ -33,26 +35,27 @@ import {
   type ActiveSession,
   type LoggedSet,
   type SaveTrigger,
+  type StoreEvent,
   type WheelValues,
 } from '@xunlu/session';
 import AppButton from '@/components/AppButton.vue';
+import AppIcon from '@/components/AppIcon.vue';
 import FeedbackSheet from '@/components/FeedbackSheet.vue';
 import NextSetHint from '@/components/NextSetHint.vue';
 import SavedCard from '@/components/SavedCard.vue';
 import SheetLayer from '@/components/SheetLayer.vue';
 import { PUSH_DAY, metaOf } from '@/data/push-day';
 import { t } from '@/locale';
-import { applyEvents, openStore, type LastSets, type Store } from '@/storage';
 import { keepScreenOn, tapFeedback } from '@/services/device';
 import { nowTick, releaseTicker, startTicker, useNow } from '@/services/ticker';
+import { applyEvents, openStore, reportStoreError, type LastSets, type Store } from '@/storage';
 import {
   formatMonthDay,
   formatRestRange,
   formatRir,
   formatSeconds,
   formatSet,
-  formatVolume,
-  formatWeight,
+  formatSetShort,
   trimNumber,
   type Unit,
 } from '@/utils/format';
@@ -83,6 +86,15 @@ const hintFromSet = ref<LoggedSet | null>(null);
 const savedFlash = ref<LoggedSet | null>(null);
 
 let store: Store | null = null;
+let writes: Promise<void> = Promise.resolve();
+
+/** 写库排队：保证先后顺序（先落 pending 再写组），出错让人看见 */
+function persist(events: readonly StoreEvent[]): void {
+  const db = store;
+  const sessionId = session.value?.id;
+  if (db === null || sessionId === undefined || events.length === 0) return;
+  writes = writes.then(() => applyEvents(db, sessionId, events)).catch(reportStoreError);
+}
 
 // --- 读状态 ---------------------------------------------------------------
 
@@ -109,7 +121,7 @@ const lastSameSet = computed(() => {
 });
 
 const totalElapsed = computed(() =>
-  session.value === null ? 0 : formatElapsed(elapsedSince(session.value.startedAt, now.value)),
+  session.value === null ? '' : formatElapsed(elapsedSince(session.value.startedAt, now.value)),
 );
 /** 距上一组：切换动作后计时继续，所以看的是全场最后保存的那一组 */
 const restSince = computed(() => {
@@ -134,6 +146,13 @@ const sheetSetNo = computed(() => {
   return session.value?.pending?.setNo ?? upcomingSetNo.value;
 });
 
+/** 点过「应用」后，下一组的目标重量跟着提示走，和预填对得上 */
+const targetWeight = computed(() => {
+  const active = current.value;
+  if (active === undefined) return 0;
+  return appliedHintOf(active)?.weight ?? active.target.weight;
+});
+
 const targetReps = computed(() => {
   const target = current.value?.target;
   if (target === undefined) return '';
@@ -143,28 +162,16 @@ const targetReps = computed(() => {
 });
 
 const hintText = computed(() => {
-  if (hintView.value === null || current.value === undefined || meta.value === undefined) return null;
+  if (hintView.value === null || hintFromSet.value === null || meta.value === undefined) return null;
   return hintCopy({
     hint: hintView.value,
     unit: unit.value,
-    fromReps: hintFromSet.value?.reps ?? 0,
+    fromWeight: hintFromSet.value.weight,
+    fromReps: hintFromSet.value.reps,
+    equipmentName: t(`equipment.${meta.value.equipment}.name`),
     plannedSets: meta.value.startTarget.sets,
     doneSets: doneSets.value.length,
     applied: hintApplied.value,
-  });
-});
-
-const savedSummary = computed(() => {
-  if (savedFlash.value === null || session.value === null) return '';
-  const own = setsOf(session.value, savedFlash.value.exerciseId).length;
-  const volume = session.value.sets.reduce((sum, s) => {
-    const config = metaOf(s.exerciseId)?.config;
-    return config === undefined ? sum : sum + setVolume(config, { weight: s.weight, reps: s.reps, rir: s.rir });
-  }, 0);
-  return t('saved.summary', {
-    exerciseSets: own,
-    totalSets: session.value.sets.length,
-    volume: formatVolume(volume, unit.value),
   });
 });
 
@@ -201,10 +208,11 @@ onUnload(() => {
 
 /** 每个动作「上次同组」的对照数据 */
 async function loadHistory(): Promise<void> {
-  if (store === null || session.value === null) return;
+  const db = store;
+  if (db === null || session.value === null) return;
   const sessionId = session.value.id;
   const entries = await Promise.all(
-    PUSH_DAY.map(async (m) => [m.config.id, await store!.lastSets(m.config.id, sessionId)] as const),
+    PUSH_DAY.map(async (m) => [m.config.id, await db.lastSets(m.config.id, sessionId)] as const),
   );
   lastSetsByExercise.value = Object.fromEntries(entries);
 }
@@ -247,11 +255,11 @@ function openSheetForSet(set: LoggedSet): void {
   openSheetWith({ weight: set.weight, reps: set.reps, rir: set.rir });
 }
 
-/** 点「完成本组」：面板没开就开，开着就按当前值保存，不丢组 */
-async function onDoneSet(): Promise<void> {
-  if (session.value === null || store === null || meta.value === undefined) return;
+/** 点「完成本组」：记下时间、震一下、打开面板 */
+function onDoneSet(): void {
+  if (session.value === null || meta.value === undefined) return;
   if (sheetOpen.value) {
-    await save('done_again');
+    save('done_again');
     return;
   }
   const { session: next, events } = beginSet(session.value, {
@@ -259,16 +267,16 @@ async function onDoneSet(): Promise<void> {
     doneAt: Date.now(),
   });
   session.value = next;
-  await applyEvents(store, next.id, events);
-  tapFeedback();
+  persist(events);
+  if (events.length > 0) tapFeedback();
   nowTick();
   if (next.pending !== null) openSheetWith(next.pending.prefill);
 }
 
-async function save(closedBy: SaveTrigger): Promise<void> {
-  if (session.value === null || store === null || meta.value === undefined) return;
+function save(closedBy: SaveTrigger): void {
+  if (session.value === null) return;
   if (editingSetId.value !== null) {
-    await finishEdit();
+    finishEdit();
     return;
   }
 
@@ -282,60 +290,55 @@ async function save(closedBy: SaveTrigger): Promise<void> {
   if (events.length === 0) return;
 
   session.value = next;
-  await applyEvents(store, next.id, events);
+  persist(events);
   sheetOpen.value = false;
   pendingNote.value = null;
-  tapFeedback();
   nowTick();
 
   const saved = next.sets[next.sets.length - 1];
   if (saved === undefined) return;
   savedFlash.value = saved;
   logTiming(saved);
-  await refreshHint(next, saved);
+  refreshHint(next, saved);
 }
 
 /** 补填完成：改的是同一条记录，不新增一组，然后按新值重新问一遍引擎 */
-async function finishEdit(): Promise<void> {
+function finishEdit(): void {
   const setId = editingSetId.value;
-  if (session.value === null || store === null || setId === null) return;
+  if (session.value === null || setId === null) return;
 
-  const { session: next, events } = updateSet(session.value, { setId, values: wheelValues.value });
+  const note = pendingNote.value;
+  const { session: next, events } = updateSet(session.value, {
+    setId,
+    values: wheelValues.value,
+    updatedAt: Date.now(),
+    ...(note === null ? {} : { note }),
+  });
   session.value = next;
-  if (events.length > 0) await applyEvents(store, next.id, events);
+  persist(events);
   sheetOpen.value = false;
   editingSetId.value = null;
-  tapFeedback();
+  pendingNote.value = null;
   nowTick();
 
   const updated = next.sets.find((s) => s.id === setId);
-  if (updated !== undefined) await refreshHint(next, updated);
+  if (updated !== undefined) refreshHint(next, updated);
 }
 
 /** 问引擎下一组该怎么办，写进 suggestions，并把卡片换成新的 */
-async function refreshHint(current: ActiveSession, set: LoggedSet): Promise<void> {
-  if (store === null) return;
+function refreshHint(latest: ActiveSession, set: LoggedSet): void {
   const config = metaOf(set.exerciseId)?.config;
   if (config === undefined) return;
 
-  const hint = hintForSet({ session: current, exercise: config, set, rirEnabled: rirEnabled.value });
-  const cleared = clearHint(current, config.id);
-  const shown = recordHintShown(cleared.session, {
-    exerciseId: config.id,
+  const hint = hintForSet({ session: latest, exercise: config, set, rirEnabled: rirEnabled.value });
+  const { session: next, events } = recordHintShown(latest, {
     fromSet: set,
+    hint,
     suggestionId: createId('sug'),
-    ruleId: hint.ruleId,
-    kind: hint.kind,
-    weight: hint.weight,
-    // 提示给的是区间时不定次数，只定重量，次数仍沿用上一组
-    reps: hint.reps !== undefined && hint.reps.low === hint.reps.high ? hint.reps.low : null,
-    ruleVersion: hint.ruleVersion,
-    blockedBy: hint.increaseBlockedBy ?? null,
-    payload: JSON.stringify(hint),
-    createdAt: set.savedAt,
+    createdAt: Date.now(),
   });
-  session.value = shown.session;
-  await applyEvents(store, shown.session.id, [...cleared.events, ...shown.events]);
+  session.value = next;
+  persist(events);
   hintView.value = hint;
   hintFromSet.value = set;
 }
@@ -352,8 +355,8 @@ function logTiming(set: LoggedSet): void {
 }
 
 /** 提示卡上的按钮：「应用」改下一组预填，「补填」把面板开在那一组上 */
-async function onHintAct(): Promise<void> {
-  if (session.value === null || store === null || current.value === undefined) return;
+function onHintAct(): void {
+  if (session.value === null || current.value === undefined) return;
 
   if (hintText.value?.act === 'fill_rir') {
     if (hintFromSet.value !== null) openSheetForSet(hintFromSet.value);
@@ -361,17 +364,16 @@ async function onHintAct(): Promise<void> {
   }
 
   const { session: next, events } = applyHint(session.value, current.value.exerciseId, Date.now());
-  if (events.length === 0) return;
   session.value = next;
-  await applyEvents(store, next.id, events);
+  persist(events);
 }
 
-async function onUndo(): Promise<void> {
-  if (session.value === null || store === null) return;
+function onUndo(): void {
+  if (session.value === null) return;
   const { session: next, events } = undoLastSet(session.value, Date.now());
   if (events.length === 0) return;
   session.value = next;
-  await applyEvents(store, next.id, events);
+  persist(events);
   savedFlash.value = null;
   hintView.value = null;
   hintFromSet.value = null;
@@ -392,18 +394,39 @@ function onNote(): void {
   });
 }
 
+/** 点选中带上的重量：键盘输入，非档位的重量（比如 81.25）从这里进来 */
+function onTypeWeight(): void {
+  const config = meta.value?.config;
+  if (config === undefined) return;
+  uni.showModal({
+    title: t('feedback.typeWeight'),
+    editable: true,
+    placeholderText: trimNumber(wheelValues.value.weight),
+    success: (res) => {
+      if (!res.confirm) return;
+      const weight = parseWeightInput(res.content ?? '');
+      if (weight === null) {
+        uni.showToast({ title: t('feedback.typeWeightInvalid'), icon: 'none' });
+        return;
+      }
+      wheelValues.value = { ...wheelValues.value, weight };
+      wheelWeights.value = weightOptions(config, weight);
+    },
+  });
+}
+
 /**
  * 切换动作：BR01 的选择弹层这一版不做，先按计划顺序切到下一个动作。
  * 已练的组保留，计时继续。
  */
-async function onSwitchExercise(): Promise<void> {
-  if (session.value === null || store === null || current.value === undefined || sheetOpen.value) return;
+function onSwitchExercise(): void {
+  if (session.value === null || current.value === undefined || sheetOpen.value) return;
   const nextPosition = (current.value.position + 1) % session.value.exercises.length;
   const target = session.value.exercises.find((e) => e.position === nextPosition);
   if (target === undefined) return;
   const { session: next, events } = switchExercise(session.value, target.exerciseId);
   session.value = next;
-  await applyEvents(store, next.id, events);
+  persist(events);
   hintView.value = null;
   hintFromSet.value = null;
   savedFlash.value = null;
@@ -417,12 +440,12 @@ function onEnd(): void {
     content: t('workout.endBody'),
     confirmText: t('workout.endConfirm'),
     cancelText: t('workout.endCancel'),
-    success: async (res) => {
-      if (!res.confirm || session.value === null || store === null) return;
+    success: (res) => {
+      if (!res.confirm || session.value === null) return;
       const { session: next, events } = endSession(session.value, Date.now());
       session.value = next;
-      await applyEvents(store, next.id, events);
-      uni.redirectTo({ url: '/pages/start/index' });
+      persist(events);
+      writes.finally(() => uni.redirectTo({ url: '/pages/start/index' }));
     },
   });
 }
@@ -434,122 +457,126 @@ function notReady(): void {
 
 <template>
   <view v-if="session !== null && current !== undefined && meta !== undefined" class="page">
-    <scroll-view class="main safe-top" scroll-y>
-      <!-- 训练工具栏 -->
-      <view class="row-between toolbar">
-        <text class="toolbar-plan">{{ $t('plan.push') }}</text>
-        <text class="toolbar-time muted num">{{ totalElapsed }}</text>
-        <text class="toolbar-end accent" @click="onEnd">{{ $t('workout.end') }}</text>
-      </view>
+    <scroll-view class="main" scroll-y>
+      <view class="content" :class="{ 'content-compact': hintText !== null }">
+        <!-- 训练工具栏 -->
+        <view class="row-between">
+          <text class="toolbar-plan">{{ $t('plan.push') }}</text>
+          <text class="toolbar-time muted num">{{ totalElapsed }}</text>
+          <text class="toolbar-end accent" @click="onEnd">{{ $t('workout.end') }}</text>
+        </view>
 
-      <!-- 当前动作 -->
-      <view class="row-between exercise">
-        <view class="row exercise-left">
-          <view class="thumb">
-            <image class="thumb-img" src="/static/thumbs/placeholder.svg" mode="aspectFit" />
+        <!-- 当前动作 -->
+        <view class="row-between">
+          <view class="row exercise-left">
+            <view class="thumb">
+              <image class="thumb-img" src="/static/thumbs/placeholder.svg" mode="aspectFit" />
+            </view>
+            <view class="col">
+              <text class="exercise-meta muted">
+                {{
+                  $t('workout.exerciseMeta', {
+                    index: exerciseIndex,
+                    total: PUSH_DAY.length,
+                    load: $t(`equipment.${meta.equipment}.load`),
+                  })
+                }}
+              </text>
+              <text class="exercise-name">{{ $t(`exercise.${meta.config.id}`) }}</text>
+            </view>
           </view>
-          <view class="col">
-            <text class="exercise-meta muted">
-              {{
-                $t('workout.exerciseMeta', {
-                  index: exerciseIndex,
-                  total: PUSH_DAY.length,
-                  loadType: $t(`loadType.${meta.config.loadType}`),
-                })
-              }}
+          <view class="more" @click="notReady">
+            <AppIcon name="more" :size="22" />
+          </view>
+        </view>
+
+        <!-- 本次目标 -->
+        <view class="col target">
+          <text class="target-label muted">{{ $t('workout.setTarget', { setNo: upcomingSetNo }) }}</text>
+          <view class="target-line">
+            <text class="target-weight num">{{ trimNumber(targetWeight) }}</text>
+            <text class="target-unit muted">{{ $t(`unit.${unit}`) }}</text>
+            <text class="target-reps">× {{ targetReps }}</text>
+          </view>
+          <text class="target-rir muted">
+            {{ $t('workout.targetRir', { rir: current.target.targetRir }) }}
+          </text>
+        </view>
+
+        <!-- 上次同组对照：出提示卡时让位给提示 -->
+        <view v-if="lastSameSet !== null && hintText === null" class="compare">
+          <text class="compare-label muted">
+            {{
+              $t('workout.lastSameSet', {
+                date: formatMonthDay(lastSameSet.date),
+                setNo: lastSameSet.set.setNo,
+              })
+            }}
+          </text>
+          <view class="row-between">
+            <text class="compare-value num">{{ formatSet(lastSameSet.set.weight, lastSameSet.set.reps, unit) }}</text>
+            <text class="compare-rir muted">{{ formatRir(lastSameSet.set.rir) }}</text>
+          </view>
+        </view>
+
+        <!-- 间隔计时：正向走表，进入推荐区间变色，不倒计时也不催促 -->
+        <view class="timer" :class="{ 'timer-compact': hintText !== null }">
+          <text class="timer-label muted">{{ $t('workout.sinceLastSet') }}</text>
+          <text class="timer-value num" :class="{ 'timer-in-range': restReached }">
+            {{ formatElapsed(restMs) }}
+          </text>
+          <text class="timer-advice muted">
+            {{ $t('workout.restAdvice', { range: formatRestRange(meta.rest.minSec, meta.rest.maxSec) }) }}
+          </text>
+          <text v-if="hintText === null" class="timer-note muted">{{ $t('workout.restNote') }}</text>
+        </view>
+
+        <!-- 已完成的组 -->
+        <view class="col done">
+          <view class="row-between">
+            <text class="done-title">
+              {{ $t(current.position === 0 ? 'workout.doneSets' : 'workout.doneSetsThisExercise', { count: doneSets.length }) }}
             </text>
-            <text class="exercise-name">{{ $t(`exercise.${meta.config.id}`) }}</text>
+            <text class="done-modify accent" @click="notReady">{{ $t('workout.modify') }}</text>
           </view>
-        </view>
-        <text class="more muted" @click="notReady">···</text>
-      </view>
-
-      <!-- 本次目标 -->
-      <view class="col target">
-        <text class="target-label muted">{{ $t('workout.setTarget', { setNo: upcomingSetNo }) }}</text>
-        <view class="target-line">
-          <text class="target-weight num">{{ trimNumber(current.target.weight) }}</text>
-          <text class="target-unit muted">{{ $t(`unit.${unit}`) }}</text>
-          <text class="target-reps">× {{ targetReps }}</text>
-        </view>
-        <text class="target-rir muted">
-          {{ $t('workout.targetRir', { rir: current.target.targetRir }) }}
-        </text>
-      </view>
-
-      <!-- 上次同组对照：出提示卡时让位给提示 -->
-      <view v-if="lastSameSet !== null && hintText === null" class="card compare">
-        <text class="compare-label muted">
-          {{
-            $t('workout.lastSameSet', {
-              date: formatMonthDay(lastSameSet.date),
-              setNo: lastSameSet.set.setNo,
-            })
-          }}
-        </text>
-        <view class="row-between">
-          <text class="compare-value num">{{ formatSet(lastSameSet.set.weight, lastSameSet.set.reps, unit) }}</text>
-          <text class="compare-rir muted">{{ formatRir(lastSameSet.set.rir) }}</text>
-        </view>
-      </view>
-
-      <!-- 间隔计时：正向走表，进入推荐区间变色，不倒计时也不催促 -->
-      <view class="timer" :class="{ 'timer-compact': hintText !== null }">
-        <text class="timer-label muted">{{ $t('workout.sinceLastSet') }}</text>
-        <text class="timer-value num" :class="{ 'timer-in-range': restReached }">
-          {{ formatElapsed(restMs) }}
-        </text>
-        <text class="timer-advice muted">
-          {{ $t('workout.restAdvice', { range: formatRestRange(meta.rest.minSec, meta.rest.maxSec) }) }}
-        </text>
-        <text v-if="hintText === null" class="timer-note muted">{{ $t('workout.restNote') }}</text>
-      </view>
-
-      <!-- 已完成的组 -->
-      <view class="col done">
-        <view class="row-between">
-          <text class="done-title">{{ $t('workout.doneSets', { count: doneSets.length }) }}</text>
-          <text class="done-modify accent" @click="notReady">{{ $t('workout.modify') }}</text>
-        </view>
-        <view v-if="doneSets.length > 0" class="card set-list">
-          <view v-for="(set, index) in doneSets" :key="set.id">
-            <view v-if="index > 0" class="set-separator" />
-            <view class="set-row">
-              <text class="set-no muted num">{{ set.setNo }}</text>
-              <text class="set-value num">{{ formatSet(set.weight, set.reps, unit) }}</text>
-              <text class="set-rir muted">{{ formatRir(set.rir) }}</text>
+          <view v-if="doneSets.length === 0" class="set-list">
+            <text class="set-empty muted">{{ $t('workout.emptySets') }}</text>
+          </view>
+          <view v-else class="set-list">
+            <view v-for="(set, index) in doneSets" :key="set.id">
+              <view v-if="index > 0" class="set-separator" />
+              <view class="set-row">
+                <text class="set-no muted num">{{ set.setNo }}</text>
+                <text class="set-value num">{{ formatSetShort(set.weight, set.reps, unit) }}</text>
+                <text class="set-rir muted">{{ formatRir(set.rir) }}</text>
+              </view>
             </view>
           </view>
         </view>
-        <text v-else class="muted empty">{{ $t('workout.noSets') }}</text>
+
+        <!-- 下一组提示 -->
+        <NextSetHint
+          v-if="hintText !== null"
+          :title="hintText.title"
+          :sub="hintText.sub"
+          :action="hintText.action"
+          :applied="hintApplied"
+          @act="onHintAct"
+        />
       </view>
-
-      <!-- 保存后 5 秒可撤销 -->
-      <SavedCard
-        v-if="savedFlash !== null && undoSeconds > 0"
-        :title="$t('saved.title', { setNo: savedFlash.setNo })"
-        :summary="savedSummary"
-        :seconds="undoSeconds"
-        @undo="onUndo"
-      />
-
-      <!-- 下一组提示 -->
-      <NextSetHint
-        v-if="hintText !== null"
-        :title="hintText.title"
-        :sub="hintText.sub"
-        :action="hintText.action"
-        :applied="hintApplied"
-        @act="onHintAct"
-      />
-
-      <view class="tail" />
     </scroll-view>
 
     <!-- 固定记录操作：这一页只有一个主按钮 -->
-    <view class="actions safe-bottom">
+    <view class="actions">
+      <!-- 保存后 5 秒可撤销：浮在主按钮上方，不把内容顶走 -->
+      <SavedCard
+        v-if="savedFlash !== null && undoSeconds > 0"
+        :title="$t('saved.title', { setNo: savedFlash.setNo })"
+        :seconds="undoSeconds"
+        @undo="onUndo"
+      />
       <view class="switch" @click="onSwitchExercise">
-        <text class="switch-icon">⇄</text>
+        <AppIcon name="swap" :size="22" />
         <text class="switch-label muted">{{ $t('workout.switchExercise') }}</text>
       </view>
       <view class="main-action">
@@ -562,8 +589,8 @@ function notReady(): void {
       <FeedbackSheet
         :set-no="sheetSetNo"
         :exercise-name="$t(`exercise.${meta.config.id}`)"
-        :load-type-label="$t(`loadType.${meta.config.loadType}`)"
-        :unit="unit"
+        :load-label="$t(`equipment.${meta.equipment}.short`)"
+        :weight-column-label="$t(`equipment.${meta.equipment}.column`, { unit: $t(`unit.${unit}`) })"
         :values="wheelValues"
         :weight-options="wheelWeights"
         :rep-options="wheelReps"
@@ -571,7 +598,9 @@ function notReady(): void {
         :rir-enabled="rirEnabled"
         @update:values="(v) => (wheelValues = v)"
         @confirm="save('confirm')"
+        @close="save('dismiss')"
         @note="onNote"
+        @type-weight="onTypeWeight"
       />
     </SheetLayer>
   </view>
@@ -581,12 +610,18 @@ function notReady(): void {
 .main {
   flex: 1 1 0;
   min-height: 0;
-  padding: var(--space-4) var(--space-20) var(--space-12);
-  box-sizing: border-box;
 }
 
-.toolbar {
-  padding-bottom: var(--space-16);
+/* 设计稿的主内容：块间距 16，出提示卡时收紧到 8（MF03 → MF05） */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  padding: calc(var(--safe-top) + var(--space-4)) var(--space-20) var(--space-12);
+}
+
+.content-compact {
+  gap: var(--space-8);
 }
 
 .toolbar-plan {
@@ -607,10 +642,6 @@ function notReady(): void {
   margin: -12px -4px;
 }
 
-.exercise {
-  padding-bottom: var(--space-16);
-}
-
 .exercise-left {
   gap: var(--space-12);
   flex: 1 1 0;
@@ -626,7 +657,6 @@ function notReady(): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-muted);
 }
 
 .thumb-img {
@@ -646,25 +676,24 @@ function notReady(): void {
 }
 
 .more {
-  font-size: var(--font-22);
-  line-height: 22px;
-  padding: 12px 4px;
-  margin: -12px -4px;
+  padding: 11px;
+  margin: -11px;
 }
 
 .target {
   gap: 2px;
-  padding-bottom: var(--space-16);
 }
 
 .target-label {
   font-size: var(--font-11);
+  line-height: 13px;
 }
 
 .target-line {
   display: flex;
   align-items: baseline;
   gap: 6px;
+  height: 35px;
 }
 
 .target-weight {
@@ -682,19 +711,16 @@ function notReady(): void {
 
 .target-rir {
   font-size: var(--font-11);
-}
-
-.card {
-  padding: var(--space-16);
-  border-radius: var(--radius-24);
-  background-color: var(--color-surface);
+  line-height: 13px;
 }
 
 .compare {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  margin-bottom: var(--space-16);
+  padding: var(--space-16);
+  border-radius: var(--radius-24);
+  background-color: var(--color-surface);
 }
 
 .compare-label {
@@ -721,11 +747,12 @@ function notReady(): void {
 }
 
 .timer-compact {
-  padding: var(--space-8) 0 var(--space-12);
+  padding: 0;
 }
 
 .timer-label {
   font-size: var(--font-13);
+  line-height: 16px;
 }
 
 .timer-value {
@@ -741,6 +768,12 @@ function notReady(): void {
 
 .timer-advice {
   font-size: var(--font-13);
+  line-height: 16px;
+}
+
+.timer-compact .timer-advice {
+  font-size: var(--font-11);
+  line-height: 16px;
 }
 
 .timer-note {
@@ -750,7 +783,6 @@ function notReady(): void {
 
 .done {
   gap: var(--space-8);
-  padding-bottom: var(--space-16);
 }
 
 .done-title {
@@ -767,7 +799,9 @@ function notReady(): void {
 }
 
 .set-list {
+  padding: var(--space-16);
   border-radius: var(--radius-20);
+  background-color: var(--color-surface);
 }
 
 .set-row {
@@ -781,7 +815,6 @@ function notReady(): void {
 .set-no {
   font-size: var(--font-15);
   line-height: 17px;
-  min-width: 16px;
 }
 
 .set-value {
@@ -794,25 +827,22 @@ function notReady(): void {
   line-height: 19px;
 }
 
+.set-empty {
+  font-size: var(--font-13);
+  line-height: 19px;
+}
+
 .set-separator {
   height: 0.5px;
   background-color: var(--color-line);
 }
 
-.empty {
-  font-size: var(--font-13);
-  line-height: 19px;
-}
-
-.tail {
-  height: var(--space-16);
-}
-
 .actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-12);
-  padding: var(--space-8) var(--space-20) 0;
+  padding: var(--space-8) var(--space-20) max(var(--safe-bottom), var(--space-8));
 }
 
 .switch {
@@ -827,15 +857,9 @@ function notReady(): void {
   justify-content: center;
 }
 
-.switch-icon {
-  font-size: var(--font-17);
-  line-height: 20px;
-  color: var(--color-muted);
-}
-
 .switch-label {
   font-size: var(--font-11);
-  line-height: 14px;
+  line-height: 16px;
 }
 
 .main-action {
