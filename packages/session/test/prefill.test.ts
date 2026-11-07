@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   differsFromPrefill,
   optionIndex,
+  parseWeightInput,
   prefillFor,
   repOptions,
   rirOptions,
@@ -145,6 +146,26 @@ describe('optionIndex', () => {
 
   it('没填时停在第一行', () => {
     expect(optionIndex([0, 1, 2], null)).toBe(0);
+  });
+});
+
+describe('parseWeightInput', () => {
+  it('收整数和小数，非档位的重量也行', () => {
+    expect(parseWeightInput('80')).toBe(80);
+    expect(parseWeightInput(' 81.25 ')).toBe(81.25);
+    expect(parseWeightInput('.5')).toBe(0.5);
+    expect(parseWeightInput('0')).toBe(0);
+  });
+
+  it('全角逗号和句号当小数点', () => {
+    expect(parseWeightInput('81，25')).toBe(81.25);
+    expect(parseWeightInput('81。5')).toBe(81.5);
+  });
+
+  it('不收空、负数、乱打的和离谱的数', () => {
+    for (const bad of ['', '   ', '-5', 'abc', '80kg', '1.2.3', '1001']) {
+      expect(parseWeightInput(bad)).toBeNull();
+    }
   });
 });
 

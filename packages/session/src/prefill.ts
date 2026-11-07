@@ -28,6 +28,9 @@ const REPS_MAX = 50;
 const RIR_MIN = 0;
 const RIR_MAX = 10;
 
+/** 手动输入重量的上限，挡住手滑多打一位 */
+const MAX_TYPED_WEIGHT = 1000;
+
 export interface PrefillInput {
   readonly exercise: ExerciseConfig;
   /** 本次目标（开始训练时已经过 adjustForLayoff） */
@@ -104,6 +107,17 @@ export function optionIndex(options: readonly number[], value: number | null): n
     }
   }
   return best;
+}
+
+/**
+ * 键盘输入的重量：滚轮只能按增量走，非档位的重量（比如 81.25）靠这里进来。
+ * 全角逗号、句号都当小数点；空、负数、超过上限的一律不收。
+ */
+export function parseWeightInput(text: string): number | null {
+  const normalized = text.trim().replace(/[,，。]/g, '.');
+  if (!/^\d*\.?\d+$/.test(normalized)) return null;
+  const value = Number(normalized);
+  return value <= MAX_TYPED_WEIGHT ? round2(value) : null;
 }
 
 /** 用户有没有改过预填值：改过的要在 suggestions 里记成「修改」而不是「采纳」 */

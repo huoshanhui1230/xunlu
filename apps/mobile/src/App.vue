@@ -3,9 +3,9 @@ import { onHide, onLaunch, onShow } from '@dcloudio/uni-app';
 import { openStore } from '@/storage';
 import { nowTick } from '@/services/ticker';
 
-onLaunch(async () => {
-  // 建表、补齐动作库；进行中的训练由记录页自己接手恢复
-  await openStore();
+onLaunch(() => {
+  // 建表、补齐动作库；出错时 openStore 自己提示，这里不用再管
+  openStore().catch(() => undefined);
 });
 
 onShow(() => {

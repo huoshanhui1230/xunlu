@@ -6,6 +6,15 @@
  */
 
 page {
+  /**
+   * 安全区：状态栏和 Home Indicator 占的高度。
+   * 写成变量让页面自己算进 padding，不要做成工具类 —— 工具类的 padding 会被页面 scoped
+   * 样式里的 padding 简写盖掉，而浏览器里 inset 是 0，要到真机上才露馅。
+   * 顶部取 uni 给的状态栏高度和系统 inset 里大的那个。
+   */
+  --safe-top: max(var(--status-bar-height, 0px), env(safe-area-inset-top, 0px));
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
   background-color: var(--color-bg);
   color: var(--color-ink);
   font-family: var(--font-family);
@@ -28,16 +37,6 @@ page {
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
-}
-
-/** 顶到状态栏的安全区 */
-.safe-top {
-  padding-top: env(safe-area-inset-top);
-}
-
-/** 底部 Home Indicator 的安全区 */
-.safe-bottom {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 8px);
 }
 
 .row {

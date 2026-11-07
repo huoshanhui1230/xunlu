@@ -8,8 +8,12 @@
 import type { ExerciseConfig, Target } from '@xunlu/engine';
 import type { RestRange } from '@xunlu/session';
 
+/** 器械决定界面上怎么称呼这个重量：杠铃含杆总重、哑铃单只重量 */
+export type Equipment = 'barbell' | 'dumbbell' | 'cable';
+
 export interface ExerciseMeta {
   readonly config: ExerciseConfig;
+  readonly equipment: Equipment;
   /** 推荐组间歇：计时走到下限就算进入推荐区间 */
   readonly rest: RestRange;
   /** 还没有历史时用的起始目标 */
@@ -20,15 +24,9 @@ export interface ExerciseMeta {
 
 const PLACEHOLDER_THUMB = 'placeholder';
 
-function startTarget(weight: number, sets: number, reps: number, range: { min: number; max: number }): Target {
-  return {
-    weight,
-    sets,
-    reps: Array.from({ length: sets }, () => reps),
-    repRange: range,
-    extended: false,
-    targetRir: 2,
-  };
+/** 重量和每组次数取自设计稿第 07 页的推日示例 */
+function startTarget(weight: number, reps: readonly number[], range: { min: number; max: number }): Target {
+  return { weight, sets: reps.length, reps, repRange: range, extended: false, targetRir: 2 };
 }
 
 export const PUSH_DAY_ID = 'push';
@@ -46,8 +44,9 @@ export const PUSH_DAY: readonly ExerciseMeta[] = [
       primaryMuscles: ['chest'],
       secondaryMuscles: ['triceps', 'front-delts'],
     },
+    equipment: 'barbell',
     rest: { minSec: 120, maxSec: 180 },
-    startTarget: startTarget(80, 3, 8, { min: 6, max: 8 }),
+    startTarget: startTarget(80, [8, 8, 8], { min: 6, max: 8 }),
     thumb: PLACEHOLDER_THUMB,
   },
   {
@@ -62,8 +61,9 @@ export const PUSH_DAY: readonly ExerciseMeta[] = [
       primaryMuscles: ['chest'],
       secondaryMuscles: ['front-delts', 'triceps'],
     },
+    equipment: 'dumbbell',
     rest: { minSec: 120, maxSec: 180 },
-    startTarget: startTarget(24, 3, 10, { min: 8, max: 12 }),
+    startTarget: startTarget(28, [12, 11, 10], { min: 8, max: 12 }),
     thumb: PLACEHOLDER_THUMB,
   },
   {
@@ -78,8 +78,9 @@ export const PUSH_DAY: readonly ExerciseMeta[] = [
       primaryMuscles: ['front-delts'],
       secondaryMuscles: ['triceps'],
     },
+    equipment: 'dumbbell',
     rest: { minSec: 120, maxSec: 180 },
-    startTarget: startTarget(18, 3, 10, { min: 8, max: 12 }),
+    startTarget: startTarget(22, [10, 10, 9], { min: 8, max: 12 }),
     thumb: PLACEHOLDER_THUMB,
   },
   {
@@ -92,8 +93,9 @@ export const PUSH_DAY: readonly ExerciseMeta[] = [
       plannedSets: 3,
       primaryMuscles: ['side-delts'],
     },
+    equipment: 'dumbbell',
     rest: { minSec: 60, maxSec: 120 },
-    startTarget: startTarget(8, 3, 13, { min: 12, max: 15 }),
+    startTarget: startTarget(10, [15, 14, 12], { min: 12, max: 15 }),
     thumb: PLACEHOLDER_THUMB,
   },
   {
@@ -106,8 +108,9 @@ export const PUSH_DAY: readonly ExerciseMeta[] = [
       plannedSets: 3,
       primaryMuscles: ['triceps'],
     },
+    equipment: 'cable',
     rest: { minSec: 60, maxSec: 120 },
-    startTarget: startTarget(25, 3, 12, { min: 10, max: 15 }),
+    startTarget: startTarget(35, [15, 13, 12], { min: 10, max: 15 }),
     thumb: PLACEHOLDER_THUMB,
   },
   {
@@ -120,8 +123,9 @@ export const PUSH_DAY: readonly ExerciseMeta[] = [
       plannedSets: 2,
       primaryMuscles: ['triceps'],
     },
+    equipment: 'cable',
     rest: { minSec: 60, maxSec: 120 },
-    startTarget: startTarget(20, 2, 12, { min: 10, max: 15 }),
+    startTarget: startTarget(27.5, [12, 11], { min: 10, max: 15 }),
     thumb: PLACEHOLDER_THUMB,
   },
 ];

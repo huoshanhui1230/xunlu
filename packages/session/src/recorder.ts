@@ -10,7 +10,7 @@
  *   updateSet   补填 RIR 或改已保存的组：同一条记录改值，不新增一组
  *   undoLastSet 保存后 5 秒内可撤
  */
-import { round2, type ExerciseConfig, type SetTag } from '@xunlu/engine';
+import { round2, type ExerciseConfig, type SetHint, type SetTag } from '@xunlu/engine';
 import { prefillFor } from './prefill';
 import { canUndo } from './undo';
 import type {
@@ -212,12 +212,17 @@ export function saveSet(session: ActiveSession, input: SaveSetInput): Transition
 export interface UpdateSetInput {
   readonly setId: string;
   readonly values: WheelValues;
+  /** 这次改动的时间戳，用来记提示的结算时间 */
+  readonly updatedAt: number;
   readonly note?: string | null;
 }
 
 /**
  * 改一条已经保存的记录（补填 RIR，或以后的「修改已记录的组」）。
  * 同一条记录改值，不新增一组；doneAt 和 logMs 是当时记这一组的用时，保持不动。
+ *
+ * 这一组引出的提示是按旧值算的，一并收起来，页面再按新值问一遍引擎。
+ * 提示补填的那条顺手结算：填上了算照做，还是没填算忽略。
  */
 export function updateSet(session: ActiveSession, input: UpdateSetInput): Transition {
   const target = session.sets.find((s) => s.id === input.setId);
@@ -230,17 +235,37 @@ export function updateSet(session: ActiveSession, input: UpdateSetInput): Transi
     rir: input.values.rir,
     note: input.note === undefined ? target.note : input.note,
   };
-  return {
-    session: { ...session, sets: session.sets.map((s) => (s.id === updated.id ? updated : s)) },
-    events: [{ kind: 'set_saved', set: updated }],
+  const events: StoreEvent[] = [{ kind: 'set_saved', set: updated }];
+  let next: ActiveSession = {
+    ...session,
+    sets: session.sets.map((s) => (s.id === updated.id ? updated : s)),
   };
+
+  const active = findExercise(session, target.exerciseId);
+  const hint = active?.hint ?? null;
+  if (active !== undefined && hint !== null && hint.fromSetNo === target.setNo) {
+    if (hint.kind === 'need_rir') {
+      events.push({
+        kind: 'suggestion_decided',
+        suggestionId: hint.suggestionId,
+        decision: decideHint(hint, input.values),
+        decidedAt: input.updatedAt,
+      });
+    }
+    const cleared: ActiveExercise = { ...active, hint: null };
+    next = replaceExercise(next, cleared);
+    events.push({ kind: 'exercise_state_changed', exercise: cleared });
+  }
+
+  return { session: next, events };
 }
 
 /**
  * 用户拿这条提示做了什么。
- *   increase / decrease  照着提示的重量练了就算采纳，哪怕没点过「应用」
- *   nudge                只提醒方向，所以看有没有真的加重或多做
- *   need_rir             看这次有没有把 RIR 填上
+ *   increase / decrease / hold  照着提示的重量练了就算采纳，哪怕没点过「应用」
+ *   add_reps                    重量不变，还要真的比上一组多做
+ *   nudge                       只提醒方向，所以看有没有真的加重或多做
+ *   need_rir                    看这次有没有把 RIR 填上
  */
 export function decideHint(hint: HintState, saved: WheelValues): SuggestionDecision {
   if (hint.kind === 'need_rir') return saved.rir === null ? 'ignored' : 'applied';
@@ -248,7 +273,9 @@ export function decideHint(hint: HintState, saved: WheelValues): SuggestionDecis
     const harder = !sameWeight(saved.weight, hint.fromWeight) || saved.reps > hint.fromReps;
     return harder ? 'applied' : 'ignored';
   }
-  if (sameWeight(saved.weight, hint.weight)) return 'applied';
+  const followed =
+    sameWeight(saved.weight, hint.weight) && (hint.kind !== 'add_reps' || saved.reps > hint.fromReps);
+  if (followed) return 'applied';
   return hint.applied ? 'modified' : 'ignored';
 }
 
@@ -284,40 +311,40 @@ export function undoLastSet(session: ActiveSession, now: number): Transition {
 // ---------------------------------------------------------------------------
 
 export interface RecordHintInput {
-  readonly exerciseId: string;
   /** 这条提示是看着哪一组给的 */
   readonly fromSet: LoggedSet;
+  /** 引擎给的提示，原样收下 */
+  readonly hint: SetHint;
   readonly suggestionId: string;
-  readonly ruleId: string;
-  readonly kind: string;
-  readonly weight: number;
-  /**
-   * 应用这条提示时要预填的次数。提示给的是区间（「6–8 次」）时传 null：
-   * 只定重量，次数仍沿用上一组。nudge 和 need_rir 也传 null。
-   */
-  readonly reps: number | null;
-  readonly ruleVersion: string;
-  readonly blockedBy: string | null;
-  /** 完整的 SetHint，序列化后原样存下来 */
-  readonly payload: string;
   readonly createdAt: number;
+}
+
+/**
+ * 点「应用」后下一组预填几次。
+ * 保持给的是整个次数区间（「6–8 次」），应用只定重量，次数沿用上一组；
+ * 加重、加次数、减重用提示的下限。nudge 和 need_rir 不给数值。
+ */
+export function appliedReps(hint: SetHint): number | null {
+  if (hint.reps === undefined || hint.kind === 'hold') return null;
+  return hint.reps.low;
 }
 
 /** 记下一条刚显示出来的组间提示 */
 export function recordHintShown(session: ActiveSession, input: RecordHintInput): Transition {
-  const active = findExercise(session, input.exerciseId);
+  const { fromSet, hint: engineHint } = input;
+  const active = findExercise(session, fromSet.exerciseId);
   if (active === undefined) return unchanged(session);
 
   const hint: HintState = {
     suggestionId: input.suggestionId,
-    fromSetNo: input.fromSet.setNo,
-    setNo: input.fromSet.setNo + 1,
-    ruleId: input.ruleId,
-    kind: input.kind,
-    weight: round2(input.weight),
-    reps: input.reps,
-    fromWeight: input.fromSet.weight,
-    fromReps: input.fromSet.reps,
+    fromSetNo: fromSet.setNo,
+    setNo: fromSet.setNo + 1,
+    ruleId: engineHint.ruleId,
+    kind: engineHint.kind,
+    weight: round2(engineHint.weight),
+    reps: appliedReps(engineHint),
+    fromWeight: fromSet.weight,
+    fromReps: fromSet.reps,
     applied: false,
   };
   const updated: ActiveExercise = { ...active, hint };
@@ -329,15 +356,15 @@ export function recordHintShown(session: ActiveSession, input: RecordHintInput):
         kind: 'suggestion_shown',
         suggestion: {
           id: input.suggestionId,
-          exerciseId: input.exerciseId,
+          exerciseId: fromSet.exerciseId,
           scope: 'intra',
-          setId: input.fromSet.id,
-          ruleVersion: input.ruleVersion,
-          ruleId: input.ruleId,
-          kind: input.kind,
-          reason: null,
-          blockedBy: input.blockedBy,
-          payload: input.payload,
+          setId: fromSet.id,
+          ruleVersion: engineHint.ruleVersion,
+          ruleId: engineHint.ruleId,
+          kind: engineHint.kind,
+          reason: engineHint.nudgeReason ?? null,
+          blockedBy: engineHint.increaseBlockedBy ?? null,
+          payload: JSON.stringify(engineHint),
           decision: 'shown',
           createdAt: input.createdAt,
         },
@@ -363,16 +390,6 @@ export function applyHint(session: ActiveSession, exerciseId: string, decidedAt:
   };
 }
 
-/** 补填完 RIR 之后把卡片收起来 */
-export function clearHint(session: ActiveSession, exerciseId: string): Transition {
-  const active = findExercise(session, exerciseId);
-  if (active === undefined || active.hint === null) return unchanged(session);
-  const updated: ActiveExercise = { ...active, hint: null };
-  return {
-    session: replaceExercise(session, updated),
-    events: [{ kind: 'exercise_state_changed', exercise: updated }],
-  };
-}
 
 // ---------------------------------------------------------------------------
 // 切换动作 / 结束

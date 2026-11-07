@@ -8,14 +8,16 @@
  */
 import { ref } from 'vue';
 import { onLoad } from '@dcloudio/uni-app';
-import { adjustForLayoff, daysBetween, type LayoffResult } from '@xunlu/engine';
+import { DEFAULT_PARAMS, adjustForLayoff, daysBetween, type LayoffResult } from '@xunlu/engine';
 import { startSession, type ActiveExercise } from '@xunlu/session';
 import AppButton from '@/components/AppButton.vue';
+import AppIcon from '@/components/AppIcon.vue';
 import SheetLayer from '@/components/SheetLayer.vue';
 import { PUSH_DAY, PUSH_DAY_ID, PUSH_DAY_SETS } from '@/data/push-day';
 import { t } from '@/locale';
-import { applyEvents, openStore, type Store } from '@/storage';
+import { applyEvents, openStore, reportStoreError, type Store } from '@/storage';
 import { todayLocal } from '@/utils/date';
+import { formatWeight, trimNumber } from '@/utils/format';
 import { createId } from '@/utils/id';
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
@@ -129,15 +131,26 @@ async function buildPlans(db: Store, date: string): Promise<Plan[]> {
 }
 
 /**
- * 很久没练：引擎只给建议，减不减由用户定（规则 2.0.0 的 notice: 'reduce_or_retest'）。
- * 第 11 页没画这一屏，先用系统弹窗加词典文案。
+ * 很久没练（设计稿 S05 的 Alert）：引擎只给建议，减不减由用户定。
+ * 文案里举第一个动作当例子，例如「杠铃卧推 80 → 70 kg」。
  */
 function askReduce(plans: readonly Plan[]): Promise<boolean> {
-  const days = Math.max(...plans.map((p) => p.layoff.gapDays));
+  const days = Math.min(...plans.map((p) => p.layoff.gapDays));
+  const example = plans[0];
+  const body =
+    example === undefined
+      ? ''
+      : t('layoff.body', {
+          count: plans.length,
+          limit: DEFAULT_PARAMS.layoff.days1,
+          name: t(`exercise.${example.exerciseId}`),
+          from: trimNumber(example.layoff.previous.weight),
+          to: formatWeight(example.layoff.target.weight, 'kg'),
+        });
   return new Promise((resolve) => {
     uni.showModal({
-      title: t('layoff.title', { count: plans.length }),
-      content: t('layoff.body', { days }),
+      title: t('layoff.title', { days }),
+      content: body,
       confirmText: t('layoff.reduce'),
       cancelText: t('layoff.retest'),
       success: (res) => resolve(res.confirm),
@@ -171,6 +184,8 @@ async function begin(): Promise<void> {
     });
     await applyEvents(store, session.id, events);
     uni.redirectTo({ url: '/pages/workout/index' });
+  } catch (error) {
+    reportStoreError(error);
   } finally {
     starting.value = false;
   }
@@ -180,7 +195,7 @@ async function begin(): Promise<void> {
 <template>
   <view class="page">
     <!-- 弹层背后：首页这一版不做，只保留训练日这张卡 -->
-    <view class="backdrop safe-top">
+    <view class="backdrop">
       <text class="date muted">{{ dateLine() }}</text>
       <text class="title">{{ $t('home.title') }}</text>
 
@@ -231,7 +246,7 @@ async function begin(): Promise<void> {
                 <text class="choice-sub muted">{{ optionSubtitle(option) }}</text>
               </view>
               <view class="radio" :class="{ 'radio-on': selected === option.id }">
-                <text v-if="selected === option.id" class="radio-check">✓</text>
+                <AppIcon v-if="selected === option.id" name="check" :size="16" />
               </view>
             </view>
           </view>
@@ -239,7 +254,7 @@ async function begin(): Promise<void> {
         <text class="sheet-note muted">{{ $t('start.note') }}</text>
       </scroll-view>
 
-      <view class="sheet-actions safe-bottom">
+      <view class="sheet-actions">
         <!-- 安全提示固定出现，不随滚动走掉 -->
         <view class="warmup">
           <text class="warmup-title">{{ $t('safety.warmupTitle') }}</text>
@@ -257,7 +272,7 @@ async function begin(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
-  padding: var(--space-4) var(--space-20) var(--space-12);
+  padding: calc(var(--safe-top) + var(--space-4)) var(--space-20) var(--space-12);
 }
 
 .date {
@@ -403,11 +418,6 @@ async function begin(): Promise<void> {
   background-color: var(--color-accent);
 }
 
-.radio-check {
-  color: var(--color-on-accent);
-  font-size: var(--font-13);
-  line-height: 1;
-}
 
 .separator {
   height: 0.5px;
@@ -426,7 +436,7 @@ async function begin(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
-  padding: var(--space-8) var(--space-20) 0;
+  padding: var(--space-8) var(--space-20) max(var(--safe-bottom), var(--space-8));
 }
 
 .warmup {

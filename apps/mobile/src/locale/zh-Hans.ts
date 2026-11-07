@@ -19,7 +19,7 @@ export default {
     reps: '{reps} 次',
     /** 6–8 次 */
     repsRange: '{low}–{high} 次',
-    /** 80 kg × 8 次 */
+    /** 80 kg × 8 次；已完成组列表里是 80 kg × 8 */
     weightByReps: '{weight} × {reps}',
     /** 还能做 2 次 */
     rir: '还能做 {rir} 次',
@@ -59,11 +59,11 @@ export default {
     localOnly: '记录保存在本机',
   },
 
-  loadType: {
-    total: '含杆总重',
-    perSide: '每只',
-    bodyweightPlus: '自重加负重',
-    assisted: '助力',
+  /** 器械决定重量怎么称呼：动作头用 load，面板脚注用 short，滚轮标题用 column */
+  equipment: {
+    barbell: { name: '杠铃', load: '杠铃含杆总重', short: '含杆总重', column: '重量 / {unit}' },
+    dumbbell: { name: '哑铃', load: '哑铃单只重量', short: '单只重量', column: '单只 / {unit}' },
+    cable: { name: '绳索', load: '绳索配重', short: '配重', column: '重量 / {unit}' },
   },
 
   exercise: {
@@ -97,12 +97,12 @@ export default {
     cancel: '取消',
   },
 
-  /** 很久没练：引擎给出减重建议，由用户选减重还是按原重量重新测试 */
+  /** 很久没练（设计稿 S05）：引擎给出减重建议，由用户选减重还是按原重量重新测试 */
   layoff: {
-    title: '有 {count} 个动作很久没练了',
-    body: '距上次 {days} 天。建议先减重重新爬升，也可以按原重量试一次，看看还剩多少。',
+    title: '距上次训练 {days} 天',
+    body: '{count} 个动作超过 {limit} 天没练。建议先减重，如{name} {from} → {to}；也可以按原重量重新测试。练完都以这次表现为新起点。',
     reduce: '按建议减重',
-    retest: '按原重量',
+    retest: '按原重量重新测试',
   },
 
   safety: {
@@ -113,7 +113,7 @@ export default {
   workout: {
     end: '结束',
     /** 动作 1 / 6 · 杠铃含杆总重 */
-    exerciseMeta: '动作 {index} / {total} · {loadType}',
+    exerciseMeta: '动作 {index} / {total} · {load}',
     more: '更多',
     /** 第 3 组 · 本次目标 */
     setTarget: '第 {setNo} 组 · 本次目标',
@@ -125,7 +125,9 @@ export default {
     restAdvice: '推荐组间歇 {range}',
     restNote: '间隔包含组间歇与做组时长',
     doneSets: '已完成 {count} 组',
-    noSets: '还没有记录',
+    /** 第 2 个动作起的写法（设计稿 BR03、S06、S09） */
+    doneSetsThisExercise: '本动作已完成 {count} 组',
+    emptySets: '完成本组后，在这里查看记录。',
     modify: '修改',
     switchExercise: '切换动作',
     doneSet: '完成本组',
@@ -139,31 +141,34 @@ export default {
   feedback: {
     title: '记录第 {setNo} 组',
     close: '关闭',
-    columnWeight: '重量 / {unit}',
     columnReps: '次数',
     columnRir: '还能再做',
     /** 滚轮上「还没填」的那一行 */
     rirEmpty: '—',
     /** 含杆总重 · 当前还能再做 2 次 */
-    footnote: '{loadType} · 当前还能再做 {rir} 次',
-    footnoteNoRir: '{loadType} · 还能再做没填，填一次之后的组会沿用',
+    footnote: '{load} · 当前还能再做 {rir} 次',
+    /** 单只重量 · 第 1 组请选择还能再做几次（设计稿 BR05） */
+    footnoteNoRir: '{load} · 第 {setNo} 组请选择还能再做几次',
     addNote: '添加备注',
     prefilled: '数值已预填，可滑动修改',
+    prefilledNoRir: '重量和次数已预填',
     confirm: '确认',
     closeSaves: '关闭面板也会保存当前值',
+    typeWeight: '输入重量',
+    typeWeightInvalid: '请输入有效的重量',
   },
 
   saved: {
     /** 已保存 · 第 3 组 */
     title: '已保存 · 第 {setNo} 组',
-    /** 本动作 3 组；全场 3 组，容量 1,920 kg。 */
-    summary: '本动作 {exerciseSets} 组；全场 {totalSets} 组，容量 {volume}。',
     undo: '撤销',
     undone: '已撤销这一组',
   },
 
   /**
-   * 组间提示。A4 用设计稿第 11 页的原文；A1、A2、A3 第 11 页没画，用 docs/engine-spec.md 的文案。
+   * 组间提示。A4、A0、nudge 用设计稿第 11 页的原文（S06、S09）；A1、A2、A3 第 11 页没画，
+   * 标题用 docs/engine-spec.md 的文案，A1 的说明行取自第 07 页的静态稿 26。
+   * A2、A3 的说明行和 S06 没画到的几种 nudge 原因，设计稿和规格里都没有，是这里补的。
    * {reps} 传进来的是排好版的「6–8 次」或「6 次」。
    */
   hint: {
@@ -174,13 +179,13 @@ export default {
     },
     A1: {
       title: '余力充足，下一组试试 {weight} × {reps}',
-      sub: '这组能完成 {capacity} 次，到了加重门槛 {threshold} 次。',
+      sub: '刚完成 {set}，还能再做 {rir} 次；能完成的次数约为 {capacity} 次。',
     },
     /** 余力够了但一档超上限、算不出幅度或根本不加重：只提醒方向，不给数值，也没有「应用」 */
     nudge: {
       titleBoth: '余力充足，下一组可以加重或多做几次',
       titleReps: '余力充足，下一组可以多做几次',
-      step_exceeds_cap: '加一档超过加重上限，不给具体重量：按手感加重，或保持重量多做几次。',
+      step_exceeds_cap: '{equipment}加一档超过加重上限，不给具体重量：按手感加重，或保持重量多做几次。',
       cap_unverifiable: '这个动作算不出加重幅度，不给具体重量：按手感加重，或保持重量多做几次。',
       reps_only: '这个动作不加重，下一组多做几次。',
       assistance_done: '已经不需要助力了，可以改记为自重动作，下一组多做几次。',
@@ -204,6 +209,12 @@ export default {
     applied: '已应用',
     appliedTitle: '已应用 · 下一组 {weight} × {reps}',
     appliedSub: '仅更新下一组预填，已保存的 {count} 组保持不变。',
+  },
+
+  storage: {
+    failedTitle: '本地记录出错了',
+    /** 真机上没有控制台，把错误原文显示出来才好排查 */
+    failedBody: '这次的数据可能没有存下来：{detail}',
   },
 
   resume: {

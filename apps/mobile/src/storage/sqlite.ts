@@ -53,15 +53,14 @@ type PlusSqlite = {
   }): void;
 };
 
+/**
+ * plus 是 App 运行时塞进脚本作用域的，不是 globalThis 的属性（框架和编译产物都写裸的 plus），
+ * 所以这里也只能写 plus。manifest.json 没打开 SQLite 模块时这里会是 undefined。
+ */
 function sqlite(): PlusSqlite {
-  const api = (globalThis as { plus?: { sqlite?: PlusSqlite } }).plus?.sqlite;
+  const api = plus.sqlite as unknown as PlusSqlite | undefined;
   if (api === undefined) throw new Error('plus.sqlite 不可用：manifest.json 里要打开 SQLite 模块');
   return api;
-}
-
-/** plus.sqlite 在 App 端可用就用它，H5 下没有这个全局 */
-export function hasSqlite(): boolean {
-  return typeof (globalThis as { plus?: { sqlite?: unknown } }).plus?.sqlite === 'object';
 }
 
 export class SqliteStore implements Store {

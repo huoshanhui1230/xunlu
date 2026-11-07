@@ -67,12 +67,12 @@ export interface HintState {
   readonly kind: string;
   /** 下一组重量；nudge 和 need_rir 不改重量，等于本组重量 */
   readonly weight: number;
-  /** 下一组次数下限，点「应用」后用它预填；nudge 和 need_rir 没有 */
+  /** 点「应用」后预填的次数；保持、nudge 和 need_rir 没有（次数沿用上一组） */
   readonly reps: number | null;
   /** 给出这条提示的那一组的重量和次数，用来回头判断用户有没有照做 */
   readonly fromWeight: number;
   readonly fromReps: number;
-  /** 用户点过「应用」没有；只有 increase 能应用 */
+  /** 用户点过「应用」没有；nudge 和 need_rir 不给数值，不能应用 */
   readonly applied: boolean;
 }
 
@@ -149,7 +149,7 @@ export interface ShownSuggestion {
   readonly ruleVersion: string;
   readonly ruleId: string;
   readonly kind: string;
-  /** post 的原因码；intra 没有原因码，为 null */
+  /** post 的原因码；intra 只有 nudge 有原因（nudgeReason），其余为 null */
   readonly reason: string | null;
   /** intra 没出加重提示时的原因 */
   readonly blockedBy: string | null;
