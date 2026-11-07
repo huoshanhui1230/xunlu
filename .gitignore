@@ -6,6 +6,11 @@ coverage/
 .env
 .env.*
 
+# 苹果证书和描述文件不进仓库
+*.p12
+*.mobileprovision
+*.certSigningRequest
+
 # uni-app / HBuilderX
 unpackage/
 .hbuilderx/

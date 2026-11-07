@@ -12,7 +12,7 @@
 | `apps/mobile` | uni-app 工程（iOS 先行）。独立的 npm 项目，见 `apps/mobile/README.md` |
 | `docs/engine-spec.md` | 引擎规则说明 |
 | `docs/design-tokens.md` | 设计变量说明 |
-| `docs/ios-真机调试.md` | Windows 上把 App 装进 iPhone 的每一步 |
+| `docs/ios-真机调试.md` | Windows 上用 HBuilderX 把 App 装进 iPhone 的每一步 |
 
 ## 开发
 
@@ -30,7 +30,6 @@ iOS 端自己装自己的依赖（uni-app 模板锁着旧版 Vite 和 TypeScript
 cd apps/mobile
 npm install
 npm run dev:h5     # 浏览器预览
-npm run dev:app    # 编译给 HBuilderX，再装到 iPhone
 ```
 
 ## 安全说明

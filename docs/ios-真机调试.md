@@ -1,151 +1,138 @@
 # 在 Windows 上把训录装进 iPhone
 
-写给这台 Windows 机器：从零到 App 跑在自己的 iPhone 上，再到给 5 位测试者装上。
+从零到 App 跑在自己的 iPhone 上，再到第一道放行。
 
-> **先说结论**
-> 苹果从 2022 年 9 月起不再允许 DCloud 的标准调试基座在 iOS 真机上运行
-> （[DCloud 公告](https://ask.dcloud.net.cn/article/40041)），所以**必须有自己的苹果开发者账号**
-> （个人 99 美元/年）。没有账号，iPhone 真机这条路走不通，只能用浏览器预览。
->
-> iTunes 这条路**已经不好使了**：还带 App Store 的 iTunes 12.6.5.3 只认 iOS 12 及更低的设备，
-> 新版 iTunes 根本没有安装 App 的入口。Windows 上装 ipa 现在用**爱思助手**（或 3uTools、iMazing）。
+苹果开发者账号是绕不开的（个人 99 美元/年）：2022 年 9 月 14 日起 iOS 真机不能再用 DCloud 的标准基座（[官方公告](https://ask.dcloud.net.cn/article/40041)），必须用自己的证书。
 
-一共两条路，先做哪条看你要什么：
+一共两条路，前 4 步相同：
 
 | 想要什么 | 走哪条 |
 | --- | --- |
-| 自己改代码、马上在手机上看到 | A：自定义调试基座（第 1–7 步） |
-| 给 5 位测试者装上，跑 5 秒测试 | B：Ad Hoc 正式包（第 8 步） |
+| 手机连着电脑，改代码马上看到，控制台能看到每组用时 | A：自定义调试基座（第 5–6 步） |
+| 给手机不在身边的人装一个独立的包 | B：Ad Hoc 包（第 7 步） |
 
-两条路前 4 步完全一样（账号、证书、描述文件），做一次就够。
+第一道放行优先走 A：测试者轮流用连着电脑的手机，每组用时直接在 HBuilderX 控制台里看。B 路装出来的包看不到控制台，`sets.log_ms` 写在测试者手机的本地库里读不出来（见文末）。
+
+> 这份文档里，OpenSSL 的命令在 Windows 的 Git Bash 里实际跑过。HBuilderX 的步骤来自 DCloud 官方文档，还没有用这个工程在真机上走通过，菜单文字可能随版本略有出入。
 
 ---
 
-## 第 1 步：拿到 DCloud appid
+## 准备
 
-CLI 工程的 `src/manifest.json` 里 `appid` 是空的，没有它不能云打包。
+**iTunes（必须装）。** Windows 上 HBuilderX 靠 iTunes 带的驱动认 iPhone，`如果是 windows 电脑搭配 iOS 设备，需要安装 itunes`（[官方 FAQ](https://uniapp.dcloud.net.cn/tutorial/run/run-app-faq.html)）。用不着拿它装 App，运行时也不用开着。
 
-1. 装 [HBuilderX](https://www.dcloud.io/hbuilderx.html)（App 开发版，不是标准版），注册并登录 DCloud 账号。
-2. 终端里先编一次 App 端，让 HBuilderX 有东西可开：
+1. 从苹果官网下 64 位安装包：<https://www.apple.com/itunes/download/win64>。**不要用微软商店版**，FAQ 明确说不行。
+2. 装完重启电脑。
+3. 用数据线连上 iPhone，手机上点「信任」。
+4. 打开 iTunes，能看到手机就算通了。iTunes 连不上，HBuilderX 一定也连不上。
 
-   ```bash
-   cd apps/mobile
-   npm install
-   npm run dev:app
-   ```
-
-   这条命令会一直开着监听，编译结果在 `apps/mobile/dist/dev/app`。
-3. HBuilderX → **文件 → 导入 → 从本地目录导入** → 选 `apps/mobile/dist/dev/app`。
-4. 在 HBuilderX 里打开这个项目的 `manifest.json` → **基础配置** → 点 **重新获取**，
-   拿到一串 `__UNI__XXXXXX`。
-5. 把这串 appid 抄回**源码**里的 `apps/mobile/src/manifest.json` 的 `"appid"` 字段。
-
-   > 一定要抄回源码。`dist/dev/app` 是编译产物，下次编译就被覆盖了。
-
-抄完重新跑一次 `npm run dev:app`，确认 `dist/dev/app/manifest.json` 里的 `"id"` 不再是空的。
-
-## 第 2 步：苹果开发者账号与设备 UDID
-
-1. 在 <https://developer.apple.com> 注册个人开发者账号，交完年费、等审核通过。
-2. 把 iPhone 用数据线连上电脑，装 [爱思助手](https://www.i4.cn/)，在设备信息里复制 **UDID**
-   （一串 40 位或 25 位的字符）。
-3. 5 位测试者的 iPhone 也要各拿一个 UDID —— 开发和 Ad Hoc 的描述文件都是按设备白名单发的，
-   没登记的手机装不上。一个账号最多登记 100 台 iPhone，一年只能清空一次，别乱加。
-
-## 第 3 步：在 Windows 上做证书
-
-苹果要的 CSR（证书签名请求）在 Mac 上是用钥匙串生成的；Windows 上用 OpenSSL 做同样的事。
-装一个 [Win64 OpenSSL](https://slproweb.com/products/Win32OpenSSL.html)，然后在 Git Bash 里：
+**依赖。** HBuilderX 用的是工程自己的编译器，所以要先装好：
 
 ```bash
-# 1. 生成私钥（这个文件丢了证书就废了，收好）
-openssl genrsa -out ios_dev.key 2048
-
-# 2. 生成 CSR，邮箱填开发者账号的邮箱
-openssl req -new -key ios_dev.key -out ios_dev.certSigningRequest \
-  -subj "/emailAddress=你的邮箱/CN=Xunlu Dev/C=CN"
+cd apps/mobile
+npm install
 ```
 
-接着到 <https://developer.apple.com/account/resources> 里依次做四件事：
+---
 
-1. **Certificates** → 加一个 **Apple Development** 证书，上传刚才的 `ios_dev.certSigningRequest`，
-   下载得到 `development.cer`。
-2. **Identifiers** → 建一个 App ID，Bundle ID 填 `com.你的名字.xunlu` 之类，**记下来**，
-   第 4 步要用，必须一字不差。
-3. **Devices** → 把第 2 步拿到的 UDID 都登记进去。
-4. **Profiles** → 建一个 **iOS App Development** 描述文件，选上面的 App ID、刚才的证书、
-   要调试的设备，下载得到 `.mobileprovision`。
+## 第 1 步：把工程拖进 HBuilderX，拿 appid
 
-最后把证书转成 HBuilderX 要的 `.p12`：
+把 **`apps/mobile` 整个文件夹**拖进 HBuilderX。官方文档：把整个项目拖入时，「编译时走的是项目下的编译器」（[来源](https://uniapp.dcloud.net.cn/quickstart-cli.html)）。
+
+- 不要只拖 `src`：那样会改用 HBuilderX 自带的编译器。
+- 不要导入 `dist/dev/app`：那是编译产物，HBuilderX 不会把它当 uni-app 工程看，打包结果也会被下次编译覆盖。
+
+然后在 HBuilderX 里打开 `src/manifest.json` → **基础配置** → **重新获取**，它会直接写回 `src/manifest.json`。uni-app 工程的 appid 一般是 `__UNI__` 开头。
+
+> 这份文档的上一版让你导入 `dist/dev/app`，所以现在仓库里的 appid 是 `H5GFD11F1A` 这种样子。按上面的做法重新获取一次，换成 `__UNI__` 开头的。
+
+## 第 2 步：开发者账号与设备
+
+1. 在 <https://developer.apple.com> 注册个人开发者账号，交完年费、等审核通过。
+2. 拿 iPhone 的 UDID：连上手机打开 iTunes，在摘要页点几下序列号那一行，切到 UDID 后复制。
+
+开发和 Ad Hoc 的描述文件都按设备白名单发，没登记的手机装不上。一个描述文件最多绑 100 台设备。
+
+## 第 3 步：做证书和描述文件
+
+苹果要的 CSR（证书签名请求）在 Mac 上用钥匙串生成，Windows 上用 OpenSSL。Git Bash 自带，不用另装。
+
+找一个**仓库外面**的文件夹，在 Git Bash 里运行（邮箱换成开发者账号的）：
+
+```bash
+# 1. 生成私钥。这个文件丢了证书就废了，收好，别进仓库
+openssl genrsa -out ios_dev.key 2048
+
+# 2. 生成 CSR。前面的 MSYS_NO_PATHCONV=1 不能省，否则 Git Bash 会把 /emailAddress 当成路径改掉
+MSYS_NO_PATHCONV=1 openssl req -new -key ios_dev.key -out ios_dev.certSigningRequest -subj "/emailAddress=you@example.com/CN=Xunlu Dev/C=CN"
+```
+
+到 <https://developer.apple.com/account/resources> 依次做四件事：
+
+1. **Certificates**：新建 **Apple Development** 证书，上传 `ios_dev.certSigningRequest`，下载得到 `development.cer`。
+2. **Identifiers**：新建 App ID，Bundle ID 填 `com.你的名字.xunlu` 这样的，记下来，后面要一字不差。
+3. **Devices**：把第 2 步的 UDID 登记进去。
+4. **Profiles**：新建 **iOS App Development** 描述文件，选上面的 App ID、证书和设备，下载得到 `.mobileprovision`。
+
+把证书转成 HBuilderX 要的 `.p12`：
 
 ```bash
 # 3. cer 转 pem
 openssl x509 -inform DER -in development.cer -out development.pem
 
-# 4. pem + 私钥打包成 p12，记一个密码，云打包时要填
+# 4. pem 加私钥打包成 p12。它会让你设一个密码，云打包时要填
 openssl pkcs12 -export -inkey ios_dev.key -in development.pem -out ios_dev.p12 -legacy
 ```
 
-> `-legacy` 这个参数不能省。OpenSSL 3.x 默认用新的加密算法打包 p12，
-> HBuilderX 导入时会报 `certificate file(p12) import failed`。
+`-legacy` 不要省：OpenSSL 3 默认的加密算法 HBuilderX 可能导入失败。
 
-## 第 4 步：填 iOS 包名
+## 第 4 步：确认 Bundle ID
 
-在 HBuilderX 里打开导入的项目，`manifest.json` → **App 基础配置 / 常用其它设置** →
-把 **iOS 包名（Bundle ID）** 填成第 3 步建的那个 App ID，和描述文件里的必须完全一致。
-填完同样抄回源码的 `apps/mobile/src/manifest.json`。
+云打包时要填 iOS 的 Bundle ID，必须和第 3 步描述文件里的 App ID 完全一致。
 
 ---
 
-## A：自定义调试基座（改一行代码就能在手机上看到）
+## A：自定义调试基座
 
 ### 第 5 步：云打包做基座
 
-HBuilderX → 顶部 **发行 → 原生App-云打包**（快捷键 `Ctrl+U`）：
+HBuilderX 顶部 **发行 → 原生 App-云打包**（`Ctrl+U`）：
 
-- 平台只勾 **iOS**
-- 证书选 **使用自有证书**，选上 `ios_dev.p12`、刚才记的密码、`.mobileprovision`
-- 勾上 **打自定义调试基座**
-- 打包类型选 **调试**
+- 平台只勾 iOS
+- Bundle ID 填第 3 步那个
+- 证书选自有证书：`ios_dev.p12`、刚才设的密码、`.mobileprovision`
+- 选择**打自定义调试基座**
 
-打完的文件在 `apps/mobile/dist/dev/app/unpackage/debug/iOS_debug.ipa`
-（HBuilderX 会在控制台给出准确路径，一个项目只保留最后一次的结果）。
+打完的文件在 `apps/mobile/unpackage/debug/iOS_debug.ipa`。这个文件不要自己装：官方写明「自定义运行基座必须在 HBuilderX 中真机运行使用，不可直接安装使用」。
 
-### 第 6 步：把基座装进 iPhone
+### 第 6 步：运行到 iPhone
 
-爱思助手 → 连上 iPhone → 左边 **应用** → **导入安装** → 选 `iOS_debug.ipa`。
+1. iPhone 用数据线连电脑，保持亮屏。
+2. HBuilderX 顶部 **运行**（`Ctrl+R`）→ 运行到 iOS 设备，选你的手机。第一次运行可能提示安装真机运行插件，装上。
+3. 基座选**自定义基座-本地基座**。HBuilderX 会把基座装到手机上，手机提示时点允许。
+4. 在 iPhone 上手动点图标打开（只有 Mac 上才会自动启动）。
 
-装完在 iPhone 上：**设置 → 通用 → VPN与设备管理** → 找到你的开发者账号 → **信任**。
-不信任的话 App 点开就闪退。
+打开时如果提示「未受信任的开发者」：**设置 → 通用 → VPN与设备管理** → 信任。
+如果提示要开发者模式（iOS 16 起）：**设置 → 隐私与安全性 → 开发者模式** → 打开并重启。这个开关有时要先装过一次开发版 App 才出现。
 
-### 第 7 步：HBuilderX 运行到基座
+之后改代码保存，手机上会自动刷新。每组用时打在 HBuilderX 控制台：
 
-1. 终端里的 `npm run dev:app` 保持开着（它在监听改动）。
-2. HBuilderX → **运行 → 运行到手机或模拟器**（`Ctrl+R`）→ 在设备列表里选 **自定义基座**。
-3. iPhone 上打开刚装的 App，改代码保存后它会自己刷新。
-
-> Windows 上 HBuilderX 能不能直接认到 iPhone，取决于你的 HBuilderX 版本和驱动，
-> 这一步我没法在这台机器上替你验证。如果设备列表里找不到手机：
-> 先确认爱思助手能认到（说明驱动正常），再把 HBuilderX 升到最新版。
-> 还是不行就走 B 路 —— 打一个正式包装上去，改完重新打包，慢一点但一定能用。
+```
+[训录] barbell-bench-press 第 1 组 用时 2.4 秒（confirm，直接确认）
+```
 
 ---
 
-## B：给测试者装（第一道放行用这个）
+## B：Ad Hoc 包
 
-### 第 8 步：Ad Hoc 正式包
+### 第 7 步
 
-5 位测试者只要 App 能装、能用，不需要热更新，所以打一个普通的正式包就行。
+1. **Certificates** 新建 **Apple Distribution** 证书，CSR 用同一个，下载后按第 3 步的命令转成 p12（文件名换成 `distribution`）。
+2. **Devices** 登记测试机的 UDID，**Profiles** 新建 **Ad Hoc** 描述文件，选上这些设备。
+3. HBuilderX **发行 → 原生 App-云打包**，用 Distribution 的 p12 和 Ad Hoc 描述文件，**不勾**自定义调试基座。
+4. 打出来的 `.ipa` 用爱思助手装：连上手机 → 应用 → 导入安装。这是正式包，可以直接装。新版 iTunes 已经没有装 App 的入口。
 
-1. 回到第 3 步，在 **Profiles** 里再建一个 **Ad Hoc** 描述文件
-   （证书改用 **Apple Distribution**，CSR 还是同一个；设备选上 5 台测试机）。
-2. HBuilderX → **发行 → 原生App-云打包** → iOS → 自有证书（Distribution 的 p12 + Ad Hoc 描述文件），
-   **不勾**「打自定义调试基座」，打包类型选 **正式**。
-3. 打出来的 `.ipa` 发给测试者，各自用爱思助手装；第一次打开前同样要在
-   **设置 → 通用 → VPN与设备管理** 里信任。
-
-改了代码就重新打一个包发过去。想省事可以考虑 TestFlight，但那要先过一次苹果审核，
-这一轮没必要。
+改了代码要重新打包、重新装。
 
 ---
 
@@ -153,20 +140,32 @@ HBuilderX → 顶部 **发行 → 原生App-云打包**（快捷键 `Ctrl+U`）�
 
 | 症状 | 多半是 |
 | --- | --- |
-| 云打包报 `certificate file(p12) import failed` | p12 是 OpenSSL 3.x 默认算法打的，加 `-legacy` 重做一遍 |
-| 云打包报包名不匹配 | manifest.json 里的 iOS 包名和描述文件里的 App ID 不一致 |
-| App 装上点开就闪退 | 没在「VPN与设备管理」里信任开发者，或这台手机的 UDID 没登记进描述文件 |
-| 提示没有 appid | 第 1 步的 appid 没抄回 `src/manifest.json`，或抄完没重新编译 |
-| 记录存不进去 | `manifest.json` 的 `modules` 里要有 `"SQLite": {}`，本仓库已经配好，别删 |
-| 深色模式不跟随系统 | `app-plus.darkmode` 要是 `true` 且有 `themeLocation: "theme.json"`，本仓库已经配好 |
+| iTunes 看不到手机 | Windows 服务里 Apple Mobile Device Service 没启动（启动后要重新插拔）；或数据线只能充电；或手机上没点信任 |
+| HBuilderX 看不到手机，iTunes 能看到 | 把 HBuilderX 升到最新版，用管理员身份运行，或把它加进杀毒软件白名单 |
+| `req: subject name is expected to be in the format` | CSR 命令前面漏了 `MSYS_NO_PATHCONV=1` |
+| 云打包报 `certificate file(p12) import failed` | 打 p12 时漏了 `-legacy` |
+| 云打包报包名不匹配 | Bundle ID 和描述文件里的 App ID 不一致 |
+| App 点开就闪退 | 没信任开发者，或这台手机的 UDID 不在描述文件里 |
+| 提示没有 appid | 第 1 步没做，或 `src/manifest.json` 的 appid 还是空的 |
+| 开 App 弹「本地记录出错了」 | 把弹窗里的原文记下来。`manifest.json` 的 `modules` 里要有 `"SQLite": {}`，仓库里已配好，打包时别在 HBuilderX 里关掉 |
+| 拖进 HBuilderX 后识别不了或编译报错 | 退路：终端里 `npm run dev:app`，再把 `dist/dev/app` 导入 HBuilderX 运行（这是编译器提示的方式），appid 仍要写在 `src/manifest.json` |
 
-证书、描述文件、UDID 这些一年到期一次，到期后 App 会打不开，重新签一遍就行。
+证书和描述文件一年到期，到期后 App 打不开，重新做一遍第 3 步再打包。
 
 ## 这一版在真机上该看什么
 
-1. 滚轮是不是系统原生的手感（`picker-view` 在 App 端是原生控件，H5 下是拖的）。
-2. 完成一组有没有震一下，训练过程中屏幕会不会自己熄。
-3. 把 App 从后台划掉再打开，能不能接着上次的训练记；面板开着时划掉也一样。
-4. 间隔计时切后台再回来对不对（计时只存时间戳，回前台立刻重算）。
-5. 每组用时：连上电脑看 HBuilderX 控制台的 `[训录] … 用时 x.x 秒`，
-   这就是第一道放行的那个数。
+这些在浏览器里都验证不了：
+
+1. **滚轮手感**：`picker-view` 在 App 的 vue 页面里不是系统原生控件，是 webview 里模拟的。三个滚轮连着滑会不会跟手、会不会被拽回去，是 5 秒测试最该看的。
+2. **状态栏和 Home Indicator**：顶部「推日 / 结束」不能被灵动岛挡住，底部「完成本组」不能压住 Home Indicator。
+3. **存储**：记几组后从后台划掉 App 再打开，要弹「继续上次训练」，组都在；面板开着时划掉也一样。
+4. **震动和常亮**：点「完成本组」震一下，训练中屏幕不熄。
+5. **切后台**：切出去一分钟再回来，计时要是对的。
+
+### 第一道放行的数据
+
+每组用时写在本地库 `sets.log_ms`，并打在控制台。目前没有把库导出来的入口，所以：
+
+- 走 A 路，手机连着 HBuilderX，从控制台抄数。
+- 用时只算「点完成本组 → 保存」。第 1 组没选 RIR 就确认的话，之后点「补填」的时间不算在内；看数据时留意 `closed_by` 和第 1 组。
+- 面板开着时 App 被杀掉，重开后才保存的那一组，用时会特别长，统计时剔除。
