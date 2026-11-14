@@ -14,7 +14,7 @@ import type { SetTag, Target } from '@xunlu/engine';
 export interface WheelValues {
   readonly weight: number;
   readonly reps: number;
-  /** null 表示没填（「我的」里关掉 RIR 时） */
+  /** null 表示没填：每个动作第 1 组不预填，用户也可以一直不填；关掉「RIR 显示」时恒为 null */
   readonly rir: number | null;
 }
 
