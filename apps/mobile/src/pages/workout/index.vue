@@ -14,6 +14,7 @@ import {
   appliedHintOf,
   applyHint,
   beginSet,
+  differsFromPrefill,
   elapsedSince,
   endSession,
   formatElapsed,
@@ -44,7 +45,7 @@ import FeedbackSheet from '@/components/FeedbackSheet.vue';
 import NextSetHint from '@/components/NextSetHint.vue';
 import SavedCard from '@/components/SavedCard.vue';
 import SheetLayer from '@/components/SheetLayer.vue';
-import { PUSH_DAY, metaOf } from '@/data/push-day';
+import { metaOf } from '@/data/push-day';
 import { t } from '@/locale';
 import { keepScreenOn, tapFeedback } from '@/services/device';
 import { nowTick, releaseTicker, startTicker, useNow } from '@/services/ticker';
@@ -109,9 +110,6 @@ const doneSets = computed<LoggedSet[]>(() =>
 const upcomingSetNo = computed(() =>
   session.value === null || current.value === undefined ? 1 : nextSetNo(session.value, current.value.exerciseId),
 );
-const exerciseIndex = computed(() =>
-  current.value === undefined ? 1 : PUSH_DAY.findIndex((m) => m.config.id === current.value?.exerciseId) + 1,
-);
 const lastSameSet = computed(() => {
   if (current.value === undefined) return null;
   const history = lastSetsByExercise.value[current.value.exerciseId];
@@ -162,14 +160,18 @@ const targetReps = computed(() => {
 });
 
 const hintText = computed(() => {
-  if (hintView.value === null || hintFromSet.value === null || meta.value === undefined) return null;
+  const active = current.value;
+  if (hintView.value === null || hintFromSet.value === null || active === undefined || meta.value === undefined) {
+    return null;
+  }
   return hintCopy({
     hint: hintView.value,
     unit: unit.value,
     fromWeight: hintFromSet.value.weight,
     fromReps: hintFromSet.value.reps,
     equipmentName: t(`equipment.${meta.value.equipment}.name`),
-    plannedSets: meta.value.startTarget.sets,
+    // 计划组数看本次的目标，不看写死的起始目标
+    plannedSets: active.target.sets,
     doneSets: doneSets.value.length,
     applied: hintApplied.value,
   });
@@ -178,16 +180,26 @@ const hintText = computed(() => {
 // --- 生命周期 -------------------------------------------------------------
 
 onLoad(async () => {
-  store = await openStore();
-  const restored = await store.loadActiveSession();
-  if (restored === null) {
-    uni.redirectTo({ url: '/pages/start/index' });
-    return;
+  // 开库失败 openStore 自己弹过窗，这里不用再报
+  const db = await openStore().catch(() => null);
+  if (db === null) return;
+  store = db;
+
+  try {
+    const restored = await db.loadActiveSession();
+    if (restored === null) {
+      uni.redirectTo({ url: '/pages/start/index' });
+      return;
+    }
+    session.value = restoreSession(restored);
+    reopenPending();
+    rebuildHint();
+    // 「上次同组」只是对照，放在最后读：它读不出来也不耽误接着记
+    await loadHistory();
+  } catch (error) {
+    // 真机上没有控制台：读库出错要弹出来，不然这一页就是一片空白
+    reportStoreError(error, 'load');
   }
-  session.value = restoreSession(restored);
-  await loadHistory();
-  reopenPending();
-  rebuildHint();
 });
 
 onShow(() => {
@@ -210,9 +222,9 @@ onUnload(() => {
 async function loadHistory(): Promise<void> {
   const db = store;
   if (db === null || session.value === null) return;
-  const sessionId = session.value.id;
+  const { id: sessionId, exercises } = session.value;
   const entries = await Promise.all(
-    PUSH_DAY.map(async (m) => [m.config.id, await db.lastSets(m.config.id, sessionId)] as const),
+    exercises.map(async (e) => [e.exerciseId, await db.lastSets(e.exerciseId, sessionId)] as const),
   );
   lastSetsByExercise.value = Object.fromEntries(entries);
 }
@@ -345,8 +357,7 @@ function refreshHint(latest: ActiveSession, set: LoggedSet): void {
 
 /** 第一道放行要看的数：每组从点完成本组到保存用了多久 */
 function logTiming(set: LoggedSet): void {
-  const changed =
-    set.weight !== set.prefill.weight || set.reps !== set.prefill.reps || set.rir !== set.prefill.rir;
+  const changed = differsFromPrefill(set.prefill, set);
   console.log(
     `[训录] ${set.exerciseId} 第 ${set.setNo} 组 ${t('format.logSeconds', {
       seconds: formatSeconds(set.logMs),
@@ -470,14 +481,14 @@ function notReady(): void {
         <view class="row-between">
           <view class="row exercise-left">
             <view class="thumb">
-              <image class="thumb-img" src="/static/thumbs/placeholder.svg" mode="aspectFit" />
+              <image class="thumb-img" :src="`/static/thumbs/${meta.thumb}.svg`" mode="aspectFit" />
             </view>
             <view class="col">
               <text class="exercise-meta muted">
                 {{
                   $t('workout.exerciseMeta', {
-                    index: exerciseIndex,
-                    total: PUSH_DAY.length,
+                    index: current.position + 1,
+                    total: session.exercises.length,
                     load: $t(`equipment.${meta.equipment}.load`),
                   })
                 }}

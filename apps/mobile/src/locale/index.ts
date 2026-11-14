@@ -4,8 +4,6 @@
 import { createI18n } from 'vue-i18n';
 import zhHans from './zh-Hans';
 
-export type Messages = typeof zhHans;
-
 export const DEFAULT_LOCALE = 'zh-Hans';
 
 export const i18n = createI18n({

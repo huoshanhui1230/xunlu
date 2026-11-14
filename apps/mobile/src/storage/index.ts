@@ -11,7 +11,6 @@ import { SqliteStore } from './sqlite';
 import type { Store } from './types';
 
 let opening: Promise<Store> | null = null;
-let opened: Store | null = null;
 
 export function createStore(): Store {
   // #ifdef APP-PLUS
@@ -27,12 +26,15 @@ function errorText(error: unknown): string {
   return typeof error === 'string' ? error : JSON.stringify(error);
 }
 
-/** 写库失败要让人看见：真机上没有控制台，而且用户以为记下了 */
-export function reportStoreError(error: unknown): void {
+/**
+ * 存储出错要让人看见：真机上没有控制台。
+ * 写库失败（save）时用户以为记下了；开库、读库失败（load）时页面是空的或不全。两种说法不一样。
+ */
+export function reportStoreError(error: unknown, during: 'save' | 'load' = 'save'): void {
   console.error('[训录] 存储出错', error);
   uni.showModal({
     title: t('storage.failedTitle'),
-    content: t('storage.failedBody', { detail: errorText(error) }),
+    content: t(during === 'load' ? 'storage.loadFailedBody' : 'storage.failedBody', { detail: errorText(error) }),
     showCancel: false,
   });
 }
@@ -46,19 +48,13 @@ export function openStore(): Promise<Store> {
       if (SEED_DEMO_HISTORY && !(await store.hasAnySession())) {
         await store.importHistory(demoHistory());
       }
-      opened = store;
       return store;
     })().catch((error: unknown) => {
-      reportStoreError(error);
+      reportStoreError(error, 'load');
       throw error;
     });
   }
   return opening;
-}
-
-/** 已经开好的库；没开过就先开 */
-export async function useStore(): Promise<Store> {
-  return opened ?? (await openStore());
 }
 
 export { applyEvents } from './events';

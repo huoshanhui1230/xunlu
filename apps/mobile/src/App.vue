@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onHide, onLaunch, onShow } from '@dcloudio/uni-app';
+import { onLaunch, onShow } from '@dcloudio/uni-app';
 import { openStore } from '@/storage';
 import { nowTick } from '@/services/ticker';
 
@@ -9,12 +9,8 @@ onLaunch(() => {
 });
 
 onShow(() => {
-  // 回到前台立刻按时间戳重算一次，计时不靠累加
+  // 回到前台立刻按时间戳重算一次；计时只存时间戳，所以切后台时什么都不用做
   nowTick();
-});
-
-onHide(() => {
-  // 计时只存时间戳，切后台不需要做任何事
 });
 </script>
 
@@ -23,5 +19,5 @@ onHide(() => {
 </style>
 
 <style lang="scss">
-@import './styles/base.scss';
+@use './styles/base.scss';
 </style>

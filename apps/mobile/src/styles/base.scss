@@ -55,11 +55,6 @@ page {
   flex-direction: column;
 }
 
-.grow {
-  flex: 1 1 0;
-  min-height: 0;
-}
-
 .muted {
   color: var(--color-muted);
 }
@@ -93,13 +88,4 @@ page {
 .uni-modal__ft,
 .uni-modal__btn {
   border-color: var(--color-line) !important;
-}
-
-/** 可点的文字按钮：触控区域垫到 44px 以上 */
-.text-action {
-  color: var(--color-accent);
-  font-size: var(--font-13);
-  line-height: 19px;
-  padding: 12px 4px;
-  margin: -12px -4px;
 }
