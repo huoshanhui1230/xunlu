@@ -183,7 +183,15 @@ A1 被挡住时继续往下判断，并在 `increaseBlockedBy` 写明原因：
 | `plateau.sessions` | 3 | 平台期看最近几次 |
 | `status.windowDays` | 28 | "近 4 周" |
 | `status.breakDays` | 7 | 状态信号：连续几天没练算中断 |
+| `status.s1Drop` | 0.05 | S1：估算 1RM 比窗口内最佳低多少算下滑 |
+| `status.s1Sessions` | 2 | S1：看最近几次 |
+| `status.s1MinExercises` | 2 | S1：几个动作同时命中才算信号 |
+| `status.s2RirDrop` | 2 | S2：同重量、同次数时 RIR 平均低多少 |
+| `status.s2MinExercises` | 2 | S2：几个动作同时命中才算信号 |
+| `status.s3WindowDays` | 7 | S3：看最近几天 |
+| `status.s3MinExercises` | 3 | S3：几个动作命中失败或平台期才算信号 |
 | `status.s4Days` | 35 | 连续训练满 5 周 |
+| `status.deloadSignals` | 2 | 几个信号同时出现就建议减载 |
 | `deload` | 组数 × 0.5、RIR +2、7 天 | 减载周 |
 
 改任何阈值：升 `RULE_VERSION`、补测试、同步本文。

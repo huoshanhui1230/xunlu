@@ -28,8 +28,6 @@ export default {
     minutesRange: '{low}–{high} 分钟',
     /** 10/12 */
     monthDay: '{month}/{day}',
-    /** 10 月 12 日 */
-    monthDayCn: '{month} 月 {day} 日',
     /** 10 月 17 日，星期六 */
     dateLine: '{month} 月 {day} 日，{weekday}',
     /** 5 天 */
@@ -215,6 +213,8 @@ export default {
     failedTitle: '本地记录出错了',
     /** 真机上没有控制台，把错误原文显示出来才好排查 */
     failedBody: '这次的数据可能没有存下来：{detail}',
+    /** 开库或读库失败：页面是空的或不全 */
+    loadFailedBody: '本地记录没有读出来：{detail}',
   },
 
   resume: {

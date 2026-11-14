@@ -1,5 +1,5 @@
 import type { ExerciseConfig, Target } from '@xunlu/engine';
-import type { ActiveExercise, ActiveSession, LoggedSet, RestRange, WheelValues } from '../src';
+import type { ActiveExercise, LoggedSet, RestRange, WheelValues } from '../src';
 
 export const bench: ExerciseConfig = {
   id: 'barbell-bench-press',
@@ -91,28 +91,6 @@ export function activeExercise(overrides: Partial<ActiveExercise> = {}): ActiveE
     position: 0,
     target: target(),
     hint: null,
-    ...overrides,
-  };
-}
-
-/** 把 session 推进到「某个动作已经记了 n 组」的状态，用保存的那一刻当时间戳 */
-export function withSets(session: ActiveSession, sets: readonly LoggedSet[]): ActiveSession {
-  return { ...session, sets: [...session.sets, ...sets] };
-}
-
-export function activeSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
-  return {
-    id: 'session-1',
-    planId: 'push',
-    date: '2026-10-17',
-    startedAt: 1_000_000,
-    unit: 'kg',
-    deload: false,
-    currentExerciseId: bench.id,
-    exercises: [activeExercise()],
-    sets: [],
-    pending: null,
-    endedAt: null,
     ...overrides,
   };
 }

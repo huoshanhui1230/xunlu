@@ -18,7 +18,7 @@ TypeScript 是 4.9，和根目录的 vitest 5 / TypeScript 6 对不上，混在�
 | `@xunlu/session` | `packages/session/src/index.ts` |
 | `@xunlu/tokens/tokens.css` | `packages/tokens/tokens.css` |
 
-别名在 `vite.config.ts` 和 `tsconfig.json` 两处，改一个记得改另一个。
+别名在 `vite.config.ts`、`tsconfig.json` 和 `vitest.config.mts` 三处（`tokens.css` 那条只在 `vite.config.ts`），改一个记得改另外两个。
 
 ## 在浏览器里预览
 
@@ -28,7 +28,7 @@ npm install
 npm run dev:h5
 ```
 
-打开终端里给出的地址（默认 <http://localhost:5173>），用浏览器的手机模拟（375 × 812）看。
+打开终端里给出的地址（默认 <http://localhost:5173>），用浏览器的手机模拟看，尺寸设成 402 × 874，和设计稿的画板一样大。
 切系统深浅色能看到 D / E 两套主题；控制台会打出每组的用时：
 
 ```
@@ -39,7 +39,7 @@ npm run dev:h5
 `sets.log_ms`，可以事后导出来统计。
 
 H5 端的存储是**内存实现**，刷新页面就清空。「App 杀掉后重开继续」只有真机上才看得到，
-那部分逻辑由 `packages/session` 的单元测试覆盖。
+那部分逻辑由 `packages/session` 的单元测试和这里 `test/` 的存储测试覆盖。
 
 首次启动会灌一条 5 天前的推日记录，好让「上次同组对照」有东西可比。
 不想要就把 `src/data/demo-history.ts` 里的 `SEED_DEMO_HISTORY` 改成 `false`。

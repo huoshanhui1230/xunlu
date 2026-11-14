@@ -18,7 +18,7 @@ export interface ExerciseMeta {
   readonly rest: RestRange;
   /** 还没有历史时用的起始目标 */
   readonly startTarget: Target;
-  /** 动作缩略图，本轮一律占位图 */
+  /** 动作缩略图：static/thumbs 下的文件名（不带扩展名），本轮一律占位图 */
   readonly thumb: string;
 }
 
@@ -135,8 +135,4 @@ export const PUSH_DAY_SETS = PUSH_DAY.reduce((sum, item) => sum + item.startTarg
 
 export function metaOf(exerciseId: string): ExerciseMeta | undefined {
   return PUSH_DAY.find((item) => item.config.id === exerciseId);
-}
-
-export function configOf(exerciseId: string): ExerciseConfig | undefined {
-  return metaOf(exerciseId)?.config;
 }

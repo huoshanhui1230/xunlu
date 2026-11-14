@@ -9,8 +9,8 @@
  * App 端事件要在视图层和逻辑层之间跑一个来回，边滚边回写的话，
  * 回来的旧值可能把用户正在滚的另一列拽回去。
  *
- * 选中带是 picker-view 自己的 indicator，上下渐隐用一层覆盖的渐变做，
- * 这样深色模式下也跟着 --color-sheet 走，不会出现一层白雾。
+ * 选中带的底色是垫在滚轮后面的 .band（indicator 画在文字上面，给了底色会盖住数字）；
+ * 上下渐隐用一层覆盖的渐变做，跟着 --color-sheet 走，深色模式下不会出现一层白雾。
  */
 import { getCurrentInstance } from 'vue';
 import type { WheelColumn } from './wheel';

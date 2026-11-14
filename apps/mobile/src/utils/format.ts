@@ -48,13 +48,6 @@ export function formatMonthDay(date: string): string {
   return t('format.monthDay', { month, day });
 }
 
-/** 10 月 12 日 */
-export function formatMonthDayCn(date: string): string {
-  const { month, day } = monthDay(date);
-  return t('format.monthDayCn', { month, day });
-}
-
-
 /** 2.4：记一组用了多久，只打控制台 */
 export function formatSeconds(ms: number): string {
   return (Math.round(ms / 100) / 10).toFixed(1);

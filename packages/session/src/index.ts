@@ -26,7 +26,6 @@ export {
   decideHint,
   endSession,
   findExercise,
-  lastSetOf,
   nextSetNo,
   recordHintShown,
   saveSet,

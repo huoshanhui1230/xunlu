@@ -46,11 +46,6 @@ export function setsOf(session: ActiveSession, exerciseId: string): LoggedSet[] 
   return session.sets.filter((s) => s.exerciseId === exerciseId);
 }
 
-export function lastSetOf(session: ActiveSession, exerciseId: string): LoggedSet | undefined {
-  const own = setsOf(session, exerciseId);
-  return own.length > 0 ? own[own.length - 1] : undefined;
-}
-
 /** 下一组是第几组 */
 export function nextSetNo(session: ActiveSession, exerciseId: string): number {
   return setsOf(session, exerciseId).length + 1;
@@ -389,7 +384,6 @@ export function applyHint(session: ActiveSession, exerciseId: string, decidedAt:
     ],
   };
 }
-
 
 // ---------------------------------------------------------------------------
 // 切换动作 / 结束

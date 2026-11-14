@@ -16,7 +16,7 @@ export function todayLocal(now: number = Date.now()): string {
 /** 一天的毫秒数，用来把时间戳往前挪 */
 export const DAY_MS = 86_400_000;
 
-/** 取月和日，给「10/12」「10 月 12 日」这类显示用 */
+/** 取月和日，给「10/12」这类显示用 */
 export function monthDay(date: string): { month: number; day: number } {
   const parts = date.split('-');
   return { month: Number(parts[1] ?? 0), day: Number(parts[2] ?? 0) };

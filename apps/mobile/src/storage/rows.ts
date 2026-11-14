@@ -72,8 +72,6 @@ export function exerciseFromRow(row: ExerciseDbRow): ExerciseRow {
 
 // --- 一次训练 -------------------------------------------------------------
 
-export type SessionStatus = 'active' | 'ended';
-
 export interface SessionDbRow {
   readonly id: string;
   readonly plan_id: string | null;

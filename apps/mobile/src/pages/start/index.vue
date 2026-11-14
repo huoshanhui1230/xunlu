@@ -38,22 +38,28 @@ const DAY_OPTIONS: readonly DayOption[] = [
 const sheetVisible = ref(true);
 const selected = ref(PUSH_DAY_ID);
 const daysSinceLast = ref<number | null>(null);
-const today = ref(todayLocal());
 const starting = ref(false);
 
 let store: Store | null = null;
 
 onLoad(async () => {
-  store = await openStore();
-  today.value = todayLocal();
+  // 开库失败 openStore 自己弹过窗，这里不用再报
+  const db = await openStore().catch(() => null);
+  if (db === null) return;
+  store = db;
 
-  daysSinceLast.value = await computeDaysSinceLast(store, today.value);
+  try {
+    daysSinceLast.value = await computeDaysSinceLast(db, todayLocal());
 
-  // App 被系统关掉后重开：上次的训练还没结束就先问一句
-  const active = await store.loadActiveSession();
-  if (active !== null) {
-    sheetVisible.value = false;
-    askResume(active.id);
+    // App 被系统关掉后重开：上次的训练还没结束就先问一句
+    const active = await db.loadActiveSession();
+    if (active !== null) {
+      sheetVisible.value = false;
+      askResume(active.id);
+    }
+  } catch (error) {
+    // 真机上没有控制台：读库出错要弹出来，不然只看到一个不对劲的页面
+    reportStoreError(error, 'load');
   }
 });
 
@@ -69,10 +75,15 @@ function askResume(sessionId: string): void {
         uni.redirectTo({ url: '/pages/workout/index' });
         return;
       }
-      if (store === null) return;
-      await store.endSession(sessionId, Date.now());
-      sheetVisible.value = true;
-      daysSinceLast.value = await computeDaysSinceLast(store, todayLocal());
+      const db = store;
+      if (db === null) return;
+      try {
+        await db.endSession(sessionId, Date.now());
+        sheetVisible.value = true;
+        daysSinceLast.value = await computeDaysSinceLast(db, todayLocal());
+      } catch (error) {
+        reportStoreError(error);
+      }
     },
   });
 }

@@ -6,7 +6,7 @@
 ## 在 uni-app 里使用
 
 1. 在 `App.vue` 的样式里引入 `packages/tokens/tokens.css`（变量同时声明在 `:root` 和 `page` 上）。
-2. 在 `manifest.json` 开启 darkmode，页面才会跟随系统深浅色（参考 DCloud 的 DarkMode 适配指南）。
+2. 在 `manifest.json` 开启 darkmode，页面才会跟随系统深浅色（参考 DCloud 的 DarkMode 适配指南）。`apps/mobile/src/theme.json` 里的页面底色和导航栏颜色是 `--color-bg` 的手抄副本（那里用不了 CSS 变量），改 `bg` 时要一起改。
 3. 训练页要固定深色时，给页面根节点加 `class="theme-dark"`，对应"我的"里的"训练页固定深色"。
 4. 颜色一律用变量，例如 `color: var(--color-ink)`，不要在页面里写色值。
 
@@ -41,7 +41,7 @@ Figma 里还有 `color/board`（#e9ebf0 / #232326），只用作画板底色，A
 - 间距：`--space-0`、`4`、`8`、`12`、`16`、`20`、`24`、`28`、`32`、`40`、`48`、`64`（单位 px）。
 - 圆角：`--radius-0`、`8`、`12`、`16`、`18`、`20`、`24`、`28`、`32`、`36`、`40`、`44`，`--radius-999` 用于胶囊形。
 
-Figma 画板宽 390，与 iPhone 的点（pt）一致，所以直接用 px。uni-app 的 rpx 以 750 为满宽，大屏手机上会把字和按钮一起放大；字号、按钮高度、触控区域建议用 px，只有需要随屏宽伸缩的布局宽度才用 rpx。
+Figma 画板是 402 × 874，按 iPhone 的点（pt）画的，所以直接用 px。uni-app 的 rpx 以 750 为满宽，大屏手机上会把字和按钮一起放大；字号、按钮高度、触控区域建议用 px，只有需要随屏宽伸缩的布局宽度才用 rpx。
 
 ## 字体
 
