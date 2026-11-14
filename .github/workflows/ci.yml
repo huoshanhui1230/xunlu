@@ -36,3 +36,5 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build:h5
+      # App 端走条件编译的那一支（SQLite 存储），H5 编不到它，要单独编一次
+      - run: npm run build:app

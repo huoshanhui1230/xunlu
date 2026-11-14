@@ -11,6 +11,6 @@
     "build:tokens": "npm run build -w @xunlu/tokens"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   }
 }

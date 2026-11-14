@@ -7,7 +7,7 @@
 - 设计已定稿（Figma，见下文），建议引擎已完成（`packages/engine`，规则版本 2.0.0，2026-10-24 按确认的规则决定修订，见 `docs/engine-spec.md` 末节）。
 - `apps/mobile` 已建好，主流程前半段能跑：开始训练 → 完成本组 → 三个滚轮确认 → 保存 → 下一组提示 → 应用（对应 Figma 第 11 页 MF02–MF05a）。训练数据先写死推日 6 个动作，动作缩略图用占位图。
 - 下一步：装到 iPhone 上过第一道放行 —— 5 名有训练基础的测试者都能在 5 秒内记下一组。每组用时写在 `sets.log_ms`，也打在控制台。装机步骤见 `docs/ios-真机调试.md`。
-- 还没做：首页、计划、总结、切换动作弹层（BR01）、修改已记录的组（BR02）、训练后的下次目标（`suggestNextTarget` 等还没接）。
+- 还没做：首页、计划、总结、切换动作弹层（BR01）、修改已记录的组（BR02）、训练后的下次目标（`suggestNextTarget` 等还没接）、"我的"（RIR 显示开关和训练页固定深色都还没有：RIR 固定开着，主题只跟随系统）。
 
 ## 已确认的决定
 
@@ -29,7 +29,7 @@ docs/             engine-spec.md（规则说明）、design-tokens.md（设计�
 apps/mobile       uni-app 工程。独立的 npm 项目，不在根目录 workspaces 里
 ```
 
-`apps/mobile` 之所以独立：uni-app 模板把 Vite 锁在 5.2.8、TypeScript 是 4.9，和根目录的 vitest 5 / TypeScript 6 对不上。它用路径别名引用 `packages/*` 的源码（别名在 `vite.config.ts` 和 `tsconfig.json` 两处，改一个要改另一个）。
+`apps/mobile` 之所以独立：uni-app 模板把 Vite 锁在 5.2.8、TypeScript 是 4.9，和根目录的 vitest 5 / TypeScript 6 对不上。它用路径别名引用 `packages/*` 的源码（别名在 `vite.config.ts`、`tsconfig.json` 和 `vitest.config.mts` 三处，改一个要改另外两个）。
 
 ## 常用命令
 

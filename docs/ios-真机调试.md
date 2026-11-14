@@ -44,7 +44,7 @@ npm install
 
 然后在 HBuilderX 里打开 `src/manifest.json` → **基础配置** → **重新获取**，它会直接写回 `src/manifest.json`。uni-app 工程的 appid 一般是 `__UNI__` 开头。
 
-> 这份文档的上一版让你导入 `dist/dev/app`，所以现在仓库里的 appid 是 `H5GFD11F1A` 这种样子。按上面的做法重新获取一次，换成 `__UNI__` 开头的。
+> 仓库里现在的 appid 是 `H5GFD11F1A`，不是 `__UNI__` 开头的。它能不能直接用没有验证过；按上面的做法在 HBuilderX 里重新获取一次最稳。
 
 ## 第 2 步：开发者账号与设备
 
@@ -169,3 +169,4 @@ HBuilderX 顶部 **发行 → 原生 App-云打包**（`Ctrl+U`）：
 - 走 A 路，手机连着 HBuilderX，从控制台抄数。
 - 用时只算「点完成本组 → 保存」。第 1 组没选 RIR 就确认的话，之后点「补填」的时间不算在内；看数据时留意 `closed_by` 和第 1 组。
 - 面板开着时 App 被杀掉，重开后才保存的那一组，用时会特别长，统计时剔除。
+- 库里还有首次启动时灌进去的 17 条演示记录（`session_id` 是 `demo-push-session`，`log_ms` 都是 2400）。控制台不会打它们；以后做导库统计时要先剔掉。
